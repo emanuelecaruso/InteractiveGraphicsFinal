@@ -1,0 +1,4669 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <title>Game</title>
+    <script type="text/javascript" src="./build/three_R94.js"></script>
+    <script type="text/javascript" src="./build/SceneUtils.js"></script>
+    <script type="text/javascript" src="./build/stats.min.js"></script>
+    <script type="text/javascript" src="./libs/cannon.js"></script>
+	<script type="text/javascript" src="./libs/KeyboardState.js"></script>
+    <script type="text/javascript" src="./libs/dat.gui.min.js"></script>
+    <script type="text/javascript" src="libs/Projector.js"></script>
+	
+    <!-- <script type="text/javascript" src="./libs/Detector.js"></script> -->
+
+	
+    <style>
+        body {
+            /* set margin to 0 and overflow to hidden, to go fullscreen */
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+    <meta name='viewport' content='width=device-width'/>
+    <meta charset="UTF-8">
+</head>
+<body>
+
+<div id="Stats-output">
+</div>
+<!-- Div which will hold the Output -->
+<div id="WebGL-output">
+</div>
+
+	
+<!-- Javascript code that runs our Three.js examples -->
+<script type="text/javascript">
+	
+	
+	
+	var world, timeStep=1/60;
+	var vec3 = new THREE.Vector3();
+	var quaternion = new THREE.Quaternion();
+	
+	var meshes = [];
+	var bodies = [];
+	var mapBody;
+	
+	var fixedBodies = [];
+	
+	function initCannon() {
+
+		world = new CANNON.World();
+		world.gravity.set(0,0,0);
+		world.broadphase = new CANNON.NaiveBroadphase();
+		world.solver.iterations = 10;
+
+    }
+	
+	
+	function updatePhysics() {
+
+        // Step the physics world
+ 		world.step(timeStep);
+
+		for(i=0; i<bodies.length; i++)
+		{
+			if(fixedBodies[i])
+			{
+				vec3=meshes[i].getWorldPosition(vec3);
+				bodies[i].position.copy(vec3);
+				quaternion=meshes[i].getWorldQuaternion(quaternion);
+				bodies[i].quaternion.copy(quaternion);
+			}
+			else
+			{
+				meshes[i].position.copy(bodies[i].position);
+				meshes[i].quaternion.copy(bodies[i].quaternion);
+			}
+		}    	
+		
+    }
+	
+	// clock
+	var clock = new THREE.Clock(); 
+
+	// create a scene, that will hold all our elements such as objects, cameras and lights.
+	var scene = new THREE.Scene();
+
+	// create a camera, which defines where we're looking at.
+	var camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100000);
+
+	var res_scale = 1;
+
+
+//-------------------------------------WEBGLRENDERER---------------------------------------//
+	// create a render
+
+	var webGLRenderer = new THREE.WebGLRenderer();
+	//webGLRenderer.powerPreference= "low-power";
+	//webGLRenderer.precision = "lowp";
+	webGLRenderer.setClearColor(new THREE.Color(0x000000));
+	webGLRenderer.setSize(window.innerWidth/ res_scale , window.innerHeight/ res_scale );
+	
+	document.body.appendChild( webGLRenderer.domElement );
+	webGLRenderer.domElement.style.width = webGLRenderer.domElement.width * res_scale + 'px';
+	webGLRenderer.domElement.style.height = webGLRenderer.domElement.height * res_scale + 'px';
+
+	webGLRenderer.shadowMap.enabled = false;
+	//webGLRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	
+	document.body.appendChild( webGLRenderer.domElement );
+	console.log(webGLRenderer);
+	
+
+//----------------------------------------GUI-----------------------------------//
+
+
+var options = {
+  Res_Down: res_scale,
+  shadows: true,
+  BasicShadowMap: false,
+  };
+
+
+var gui = new dat.GUI();
+
+var webGL_Gui = gui.addFolder('Renderer');
+
+webGL_Gui.add(options, 'Res_Down', 1, 3).listen();
+webGL_Gui.add(webGLRenderer.shadowMap, 'enabled').name('shadows').listen();
+webGL_Gui.add(options, 'BasicShadowMap').listen();
+//webGL_Gui.open();
+
+
+var keyboard = new THREEx.KeyboardState();
+
+function loop(){
+
+	requestAnimationFrame(loop);
+	
+	res_scale = options.Res_Down;
+	var BasicShadowMap = options.BasicShadowMap;
+
+	// DownScale
+	camera.aspect = window.innerWidth / window.innerHeight;
+	camera.updateProjectionMatrix();
+	webGLRenderer.setSize( window.innerWidth/res_scale, window.innerHeight/res_scale );
+	webGLRenderer.domElement.style.width = webGLRenderer.domElement.width * res_scale + 'px';
+	webGLRenderer.domElement.style.height = webGLRenderer.domElement.height * res_scale + 'px';
+
+	
+	if (BasicShadowMap) webGLRenderer.shadowMap.type = THREE.BasicShadowMap;
+		else webGLRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	
+	// H per il debug
+	if(keyboard.pressed("H")) {console.log(webGLRenderer); console.log(webGLRenderer.info.memory);	console.log(webGLRenderer.info.render); webGL_Gui.open(); console.log(intersects); }   
+}
+
+loop();
+
+var loaderTexture = new THREE.TextureLoader();
+loaderTexture.crossOrigin = "anonymous" ;
+THREE.ImageUtils.crossOrigin = "anonymous";
+
+function createMaterial( color=null, texturePath=null, materialType=materialStandard )
+{
+	if (texturePath!=null)
+	{	
+		var texture = loaderTexture.load( texturePath );
+		//var texture = THREE.ImageUtils.loadTexture('http://www.transparentpng.com/download/space/space-planet-png-3.png');
+		texture.wrapS = THREE.RepeatWrapping;
+		texture.wrapT = THREE.RepeatWrapping;
+		
+		var newMaterial = new THREE.MeshPhongMaterial({
+			map : texture
+		});
+	}
+	else
+	{
+		var newMaterial = new THREE.MeshPhongMaterial();
+		newMaterial.copy(materialType);
+	}
+	
+	if (color!=null)
+		newMaterial.color=color;
+
+	return newMaterial;
+}
+	
+//------------------------------------------------------------------------------------------//
+	
+//------------------MATERIALS-------------------------
+
+var materialStandard = new THREE.MeshPhongMaterial();
+//materialStandard.roughness = 0;
+materialStandard.metalness =  0;
+materialStandard.shininess =  0;
+materialStandard.reflectivity = 0;
+
+
+var materialStandardBackSide = new THREE.MeshPhongMaterial( {side: THREE.BackSide} );
+//materialStandardBackSide.roughness = 0.7;
+//materialStandardBackSide.metalness =  0.3;
+//materialStandardBackSide.reflectivity = 1;
+
+var materialGlass = new THREE.MeshPhongMaterial();
+materialGlass.transparent=true;
+//materialGlass.roughness = 0.7;
+//materialGlass.metalness =  0.3;
+//materialGlass.reflectivity = 1;
+materialGlass.opacity = 0.3;
+
+var materialLight  = new THREE.MeshLambertMaterial( {
+emissive: 0xffffff,
+emissiveIntensity: 0,
+color: 0xffffff
+});	
+
+var texture = loaderTexture.load( "textures/tablettext.png" );
+var materialTabletOn = new THREE.MeshBasicMaterial({
+		map: texture,
+	})
+
+var texture = loaderTexture.load( "textures/tablettextOFF.png" );
+var materialTabletOff = new THREE.MeshPhongMaterial({
+		map: texture,
+	})
+	
+var darkGrey = createMaterial(new THREE.Color( 0x6e6e6e ), null)
+var wallColor = new THREE.Color( 0xffffff );
+
+var materialBlackscreen = new THREE.MeshPhongMaterial();
+materialBlackscreen.transparent=true;
+materialBlackscreen.opacity = 0;
+//materialBlackscreen.depthWrite=false;
+
+var texture = loaderTexture.load( "textures/credits.png" );
+var materialCredits = new THREE.MeshBasicMaterial({
+		map: texture,
+	})
+
+//materialCredits.depthWrite=false;
+
+
+//--------------------------------------------
+
+</script>
+	
+    <script type="text/javascript" src="./mazeMiniGame.js"></script>
+<p>introduce "maze" object, and animate that</p>
+
+<script type="text/javascript">	
+
+//--------------------INTRO----------------------//
+var intro = true;
+var intro2 = false;
+var finished = false;
+var end = false;
+var doorOpen = false;
+var bgMusic;
+
+camera.position.x = -15;				
+camera.position.y = 7;
+camera.position.z = 0;
+camera.lookAt(-20, 6, 0);
+
+
+console.log(webGLRenderer);
+
+
+// CREATE "PLAY" 2D TEXT
+function createLabel(text, x, y, z, size, planeX, planeY, color= new THREE.Color(0xffffff) ) {
+
+	var canvas = document.createElement("canvas");
+	webGLRenderer.canvas = canvas;
+	canvas.width = canvas.width*5;
+	canvas.height = canvas.height*2;
+	var PlaneText = new THREE.PlaneGeometry(planeX, planeY, 10, 10);
+	
+	var context = canvas.getContext("2d");
+	context.width =5;
+	context.height = 3;
+	context.font = size + "pt Arial";
+	
+	var textWidth = context.measureText(text).width;
+
+	context.textAlign = "center";
+	
+	context.fillStyle = "lightblue";
+	context.fillText(text, canvas.width/2 , canvas.height /2 +size/2);
+
+	var texture = new THREE.Texture(canvas);
+	texture.needsUpdate = true;
+	
+	var material = new THREE.MeshBasicMaterial({
+		map : texture
+	});
+	
+	material.transparent = true;
+	var mesh = new THREE.Mesh(PlaneText, material);
+	//mesh.overdraw = true;
+	material.color=color;
+	
+	mesh.position.x = x;
+	mesh.position.y = y;
+	mesh.position.z = z;
+					
+	return mesh;
+}
+
+		
+//Add Text to the scene
+mesh = createLabel("PLAY", -20, 7, 0, 120, 7, 2);
+mesh.rotation.y = Math.PI/2;
+scene.add(mesh);
+
+
+/*mesh2 = createLabel("Press 1 to be LEZZO", 0, 0.15, 5, 20, "white", 20, 10);
+mesh2.rotation.y = 0;
+mesh2.rotation.x = -Math.PI/2 ;
+scene.add(mesh2);*/
+
+label0 = createLabel("Use A and D to move Randy", 0, 1.5, -3.5, 30, 5, 1);
+label0.material.opacity = 0;
+label0.material.transparent = true;
+camera.add(label0);
+	
+label1 = createLabel("Press F to interact", 23, 8, -5.5, 30, 40, 7.5);
+label1.material.opacity = 0;
+label1.material.transparent = true;
+
+label2 = createLabel("Use W,A,S,D to move. If you get stucked, press SPACE to restart", 0, -1.2, -3.5, 30, 5, 1);
+label2.material.opacity = 0;
+label2.material.transparent = true;
+camera.add(label2);
+	
+label3 = createLabel("It's not the right moment", 240, 8, -5.5, 30, 40, 7.5);
+label3.material.opacity = 0;
+label3.material.transparent = true;
+label3.material.depthWrite=false;
+
+label4 = createLabel("Use T to switch On and Off the torch", 0, 1.5, -3.5, 30, 5, 1);
+label4.material.opacity = 0;
+label4.material.transparent = true;
+label4.material.depthWrite=false;
+	
+label5 = createLabel("Use Q and E to rotate the torch", 0, 1.5, -3.5, 30, 5, 1);
+label5.material.opacity = 0;
+label5.material.transparent = true;
+label5.material.depthWrite=false;
+	
+label6 = createLabel("Now, Randy can switch between spider-mode and sphere-mode, pressing 1", 0, 1.5, -3.5, 30, 5, 1);
+label6.material.opacity = 0;
+label6.material.transparent = true;
+label6.material.depthWrite=false;
+
+label7 = createLabel("Go first to room B4", 623, 8, -5.5, 30, 40, 7.5);
+label7.material.opacity = 0;
+label7.material.transparent = true;
+label7.material.depthWrite=false;
+
+label8 = createLabel("During sphere-mode, Randy can use the torch only if it's static", 0, 1.5, -3.5, 30, 5, 1);
+label8.material.opacity = 0;
+label8.material.transparent = true;
+camera.add(label8);
+
+label9 = createLabel("Randy can roll only if the torchlight is off", 0, 1.5, -3.5, 30, 5, 1);
+label9.material.opacity = 0;
+label9.material.transparent = true;
+camera.add(label9);
+
+var labelOn = false;
+//AI VOICE LABELS
+	
+var AIVoiceLabels = [];
+	
+labelAI = createLabel("Activation of Randy in progress", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+
+labelAI = createLabel("Status of emergency. Randy, go to the cockpit to take the control of the starship", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("Damage report of the starship. Engine efficency, 40%. Left propulsor, inoperative.", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("The escape pod, is prepared to be launched", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("Escape pod launched, the whole crew left the starship", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+
+labelAI = createLabel("We are entering the gravitational field of the earth, go to room B4", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("Randy, get into the rescue cabin", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("Rescue cabin activated", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+	
+labelAI = createLabel("Gravity adaptation in progress", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+
+labelAI = createLabel("Gravity adaptation performed", 0, -1.5, -3.5, 30, 5, 1, new THREE.Color( 0xFF69B4 ));
+labelAI.material.opacity = 0;
+labelAI.material.transparent = true;
+labelAI.material.depthWrite=false;
+AIVoiceLabels.push(labelAI);
+
+var labelVoiceOn = false;
+//-----------------------------INTERSECTIONS-------------------------//
+
+// when the mouse moves, call the given function
+document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+
+var projector,mouse = { x: 0, y: 0 };
+projector = new THREE.Projector();
+var targetList = [];
+function onDocumentMouseDown( event ) {
+
+	// the following line would stop any other event handler from firing
+	// (such as the mouse's TrackballControls)
+	// event.preventDefault();
+	
+	console.log("Click.");
+	
+	// update the mouse variable
+	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+		
+
+	// create a Ray with origin at the mouse position
+	//   and direction into the scene (camera direction)
+	var vector = new THREE.Vector3( mouse.x, mouse.y, 1 );
+	
+	vector.unproject(camera);
+	var ray = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+
+	// create an array containing all objects in the scene with which the ray intersects
+	var intersects = ray.intersectObjects( scene.children );
+	
+
+	if (intro ==true){
+	for ( var i = 0; i < intersects.length; i++ ) {
+
+		intersects[ i ].object.material.color.set( 0xfff000 );
+		scene.remove(mesh);
+		bgMusic = backgroundMusic();
+		doorOpen = true;
+		
+		intro = false;
+		intro2 = true;
+		}
+	}
+
+}
+
+
+//---------------------------------------STATS-------------------------------------------//
+
+
+
+	var worldTime  = 0;
+	var deltaTime = 0;
+
+	// once everything is loaded, we run our Three.js stuff	
+	//performance monitor
+	var stats = new Stats();
+	stats.showPanel( 0 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+	document.body.appendChild( stats.dom );
+	function animateMonitor() {
+
+		stats.begin();
+		// monitored code goes here
+
+		stats.end();
+		requestAnimationFrame( animateMonitor );
+
+	}
+	requestAnimationFrame( animateMonitor );
+	
+	// position and point the camera to the center of the scene
+	/*camera.position.x = 0;
+	camera.position.y = 10;
+	camera.position.z = 20;
+	camera.lookAt(new THREE.Vector3(0, 5, 0));*/
+	
+	// add the output of the renderer to the html element
+	document.getElementById("WebGL-output").appendChild(webGLRenderer.domElement);
+	
+	
+	window.addEventListener( 'resize', onWindowResize, false );
+	function onWindowResize()
+	{
+		camera.aspect = window.innerWidth / window.innerHeight;
+		camera.updateProjectionMatrix();
+		webGLRenderer.setSize( window.innerWidth/res_scale, window.innerHeight/res_scale );
+		webGLRenderer.domElement.style.width = webGLRenderer.domElement.width * res_scale + 'px';
+	webGLRenderer.domElement.style.height = webGLRenderer.domElement.height * res_scale + 'px';
+	}
+
+	//------------------------------------------------------
+
+	function createObject(meshgeom,shape,mass=0, material=materialStandard) {
+	
+		var mesh = new THREE.Mesh(meshgeom, material);
+		if (material!=materialGlass)
+		{
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+		}
+		else
+		{
+			mesh.castShadow = false;
+			mesh.receiveShadow = false;
+		}
+
+		if(shape!=null)
+		{
+			var body = new CANNON.Body({
+				mass: mass
+			});
+			body.addShape(shape);
+			
+			meshes.push(mesh);
+			bodies.push(body);
+			if(mass==0)
+				fixedBodies.push(true);
+			else
+				fixedBodies.push(false);
+		}
+
+		return mesh;
+		
+	}
+
+	var mark = new THREE.Object3D();
+
+	function mergeMapMaterial(obj_group, texturePath){
+		for (i=0; i<obj_group.children.length; i++){
+
+			obj_group.children[i].material = createMaterial( null, texturePath);
+
+		}
+	}
+
+	function mergeLastFixedObjects(number, material=materialStandard) {
+		
+		var newGeometry = new THREE.Geometry();
+		
+		var body = new CANNON.Body({
+			mass: 0
+		});
+		
+		var mesh = new THREE.Mesh(newGeometry, material);
+		if (material!=materialGlass)
+		{
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+		}
+		else
+		{
+			mesh.castShadow = false;
+			mesh.receiveShadow = false;
+		}
+		
+		for(i=number; i>0; i--)
+		{
+			newGeometry.mergeMesh(meshes[meshes.length-i]);
+			
+			var shapes = [];
+			var shapeOrientations = [];
+			var shapeOffsets = [];
+			
+				
+			for (var j=0; j<bodies[meshes.length-i].shapes.length; j++)
+			{
+				shapes.push(bodies[meshes.length-i].shapes[j]);
+				
+				shapeOffsets[j] = new THREE.Vector3();
+				shapeOffsets[j].x = bodies[meshes.length-i].shapeOffsets[j].x;
+				shapeOffsets[j].y = bodies[meshes.length-i].shapeOffsets[j].y;
+				shapeOffsets[j].z = bodies[meshes.length-i].shapeOffsets[j].z;
+				
+				shapeOrientations.push(bodies[meshes.length-i].shapeOrientations[j]);
+			}
+				
+			vec3 = meshes[meshes.length-i].position;
+			quaternion = meshes[meshes.length-i].quaternion;
+			
+			for(var j=0; j<shapes.length; j++)
+			{	
+				var rotation = new THREE.Object3D();
+				
+				var quaternion1 = new THREE.Quaternion();
+				quaternion1.x = quaternion.x;
+				quaternion1.y = quaternion.y;
+				quaternion1.z = quaternion.z;
+				quaternion1.w = quaternion.w;
+				
+				rotation.applyQuaternion(quaternion1);
+				
+				var quaternion2 = new THREE.Quaternion();
+				quaternion2.x = shapeOrientations[j].x;
+				quaternion2.y = shapeOrientations[j].y;
+				quaternion2.z = shapeOrientations[j].z;
+				quaternion2.w = shapeOrientations[j].w;
+				
+				rotation.applyQuaternion(quaternion2);
+
+				var quaternion3 = rotation.quaternion;
+				
+				shapeOffsets[j].applyQuaternion(quaternion1);
+				
+				body.addShape(shapes[j], new CANNON.Vec3(vec3.x +shapeOffsets[j].x ,vec3.y+shapeOffsets[j].y,vec3.z+shapeOffsets[j].z), new CANNON.Quaternion(quaternion3.x , quaternion3.y , quaternion3.z , quaternion3.w ));
+			}
+					
+		}
+		for(i=number; i>0; i--)
+		{
+			meshes.pop();
+			bodies.pop();
+			fixedBodies.pop();
+		}
+		
+		meshes.push(mesh);
+		bodies.push(body);
+		fixedBodies.push(true);
+		
+		return mesh;
+		
+	}
+
+	function SpotLight()
+	{
+		//light settings
+		var light = new THREE.SpotLight(0xffffff, 0.7, 0, Math.PI/5, 0.5);
+		light.position.set( 0, 14, 0 );
+		light.castShadow = true;
+		light.target.position.set (0, 0, 0);
+		scene.add( light );
+
+		//visualize schematic light wires
+		var helper = new THREE.SpotLightHelper( light );
+		scene.add( helper );
+		scene.add( light.target );
+
+		return light;
+		
+	}
+
+	initCannon();
+
+
+
+	                        //---EDO WORK IN PROGRESS---//
+//---------------------------------MOUSE INTERACTION--------------------------------------------//
+
+/*var raycaster = new THREE.Raycaster();
+var mouse = new THREE.Vector2();
+
+function onMouseMove( event ) {
+
+	// calculate mouse position in normalized device coordinates
+	// (-1 to +1) for both components
+
+	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+}
+
+function render() {
+	window.requestAnimationFrame(render);
+
+	// update the picking ray with the camera and mouse position
+	raycaster.setFromCamera( mouse, camera );
+
+	// calculate objects intersecting the picking ray
+	var intersects = raycaster.intersectObjects( scene.children );
+	//console.log(intersects);
+
+	for ( var i = 0; i < intersects.length; i++ ) {
+
+		intersects[ i ].object.material.color.set( 0xff0000 );
+
+	}
+
+	webGLRenderer.render( scene, camera );
+
+}
+
+window.addEventListener( 'mousemove', onMouseMove, false );
+
+render();*/
+
+	
+</script>
+	
+	
+	
+	
+	
+	
+<script type="text/javascript">
+
+	//****************************************************************************//
+	//*****************************-ROBOT-SCRIPT**********************************//
+	//*********************************START**************************************//
+	//****************************************************************************//
+
+	var headTime = 0;
+	var spiderTime = 0;
+	var velocity=0;
+	var velocityDir=0;
+	var maxvelocity= 6.0;
+	var robotScale=1.7;
+	
+	// create meshes
+	var robot = new THREE.Group();
+	//robot.position.set(0, robotScale,0);
+	robot.position.set(-25,robotScale,0);
+	
+	var rotator = new THREE.Object3D();
+	var sphereObject = createObject(new THREE.SphereBufferGeometry(robotScale, 8, 8),  new CANNON.Sphere(robotScale),0, createMaterial( null, "textures/mirrsp.jpg" ));
+	var headObject = createObject(new THREE.BoxBufferGeometry(0.8*robotScale,0.5*robotScale,0.5*robotScale), new CANNON.Box(new CANNON.Vec3((0.8*robotScale)/2,(0.5*robotScale)/2,(0.5*robotScale)/2)) ,0, createMaterial( null,   "textures/223.png" ) );
+	headObject.position.set(0,1.25*robotScale,0);
+	
+	var upLegsObject = [];
+	var downLegsObject = [];
+	var upLegsLength =1.3;
+	var downLegsLength =1;
+	var knees = [];
+	var feet = [];
+	var upLegsInitialRotation = [[]];
+	
+	var rotationAngles = [0,0,-Math.PI/8,Math.PI];
+	
+	var sphereId = 0;
+	var headId = 1;
+	var upLegsId = 2;
+	var kneesId = 3;	
+	var sign = 1;
+	var sign1 = 1;
+	var sign2 = 1;
+	var sign3 = 0;
+	var sign4 = 0;
+	
+	var torchObject1 = createObject(new THREE.CylinderBufferGeometry(robotScale*0.2,robotScale*0.2,robotScale*0.1,8),  new CANNON.Cylinder(robotScale*0.4,robotScale*0.4,robotScale*0.1,8), 0, materialLight );
+	torchObject1.rotation.z=Math.PI/2;
+	torchObject1.position.x=0.4*robotScale;
+	headObject.add(torchObject1);
+	var torchlight1 = new THREE.SpotLight( 0xffffff, 0.0, 100, Math.PI/4, 1, 2 )
+	var torchlightTarget1 = new THREE.Object3D();
+	torchlightTarget1.position.x=100;
+	torchlight1.position.x=0.41*robotScale;
+	//torchlight.rotateY(Math.PI);
+	headObject.add(torchlight1, torchlightTarget1);
+	torchlight1.target=torchlightTarget1;
+	
+	var torchObject2 = createObject(new THREE.CylinderBufferGeometry(robotScale*0.2,robotScale*0.2,robotScale*0.1,8),  new CANNON.Cylinder(robotScale*0.4,robotScale*0.4,robotScale*0.1,8), 0, materialLight );
+	torchObject2.rotation.z=Math.PI/2;
+	torchObject2.position.x=-0.4*robotScale;
+	headObject.add(torchObject2);
+	var torchlight2 = new THREE.SpotLight( 0xffffff, 0.0, 100, Math.PI/4, 1, 2 )
+	var torchlightTarget2 = new THREE.Object3D();
+	torchlightTarget2.position.x=-100;
+	torchlight2.position.x=0.41*robotScale;
+	//torchlight.rotateY(Math.PI);
+	headObject.add(torchlight2, torchlightTarget2);
+	torchlight2.target=torchlightTarget2;
+	
+	var torchIsOn = false;
+	
+	for(var i =0; i<8; i++)
+	{
+		upLegsObject[i]= createObject(new THREE.CylinderBufferGeometry(0.2*robotScale,0.1*robotScale,upLegsLength*robotScale,3),  new CANNON.Cylinder(0.2*robotScale,0.1*robotScale,upLegsLength*robotScale,3) ,0, createMaterial( null,   "textures/223.png" ) );
+		knees[i]= new THREE.Object3D();
+		downLegsObject[i]= createObject(new THREE.CylinderBufferGeometry(0.07*robotScale,0.2*robotScale,downLegsLength*robotScale,3),  new CANNON.Cylinder(0.07*robotScale,0.2*robotScale,downLegsLength*robotScale,3) ,0, createMaterial( null,   "textures/223.png" ) );
+		feet[i]= new THREE.Object3D();
+	}
+		
+	function initializeLegs()
+	{
+		for(var i=0; i<8; i++)
+		{
+			upLegsObject[i].position.set(0,-0.45*robotScale,0);
+			upLegsObject[i].rotation.set(0,0,Math.PI/2);
+			
+			if(i<4)
+				upLegsObject[i].rotateX((Math.PI/5)*(i+1));
+			
+			else
+				upLegsObject[i].rotateX((-Math.PI/5)*(i-3));
+			
+			upLegsObject[i].rotateZ(rotationAngles[upLegsId] = -Math.PI/8);
+			
+			knees[i].position.set(0,(upLegsLength/2)*robotScale,0);
+			knees[i].rotation.set(0,0,rotationAngles[kneesId] = Math.PI);
+
+			downLegsObject[i].position.set(0,(downLegsLength/2)*robotScale,0);
+
+			feet[i].position.set(0,(downLegsLength/2)*robotScale,0);
+			feet[i].rotation.set(0,0,0);
+			
+			upLegsInitialRotation[i] = upLegsObject[i].rotation.clone();
+		}
+	}
+	
+	initializeLegs();
+	
+	var listener = new THREE.AudioListener();
+	var footstepSound = new THREE.Audio( listener );
+	
+	var counter=0;
+	var counter1=0;
+	var counter2=0;
+	var counter3=0;
+	
+	var headIsRotating=false;
+	var legIsDoingSpasm=false;
+	var robotIsMoving;
+	var transformation= 0;
+	var dampingX, dampingY, dampingZ;
+	var step=false;
+	var step1=false;
+	var step2=false;
+	var transitions=0;
+	var spiderMode=false;
+	var robotHeight= robotScale+(0.2*robotScale); //height of the robot during spidermode
+	var spasmCounter;
+	var legId;
+	
+	var saveIndex =0;
+	var stepsize =0;
+	
+	var lightIntermittent = [];
+	var lightsArray = [];
+
+	var lightIntermittentMaterial  = new THREE.MeshLambertMaterial( {
+		emissive: 0xffffff,
+		emissiveIntensity: 1,
+		color: 0xffffff
+		});	
+	
+	var intermittentFlag = false;
+	var intermittentCounter;
+	
+	var gravityFlag = false;
+
+	var tabletActivation = new Array(7);
+	tabletActivation.fill(false);
+	tabletActivation[4]=true;
+	var tabletReuse = new Array(tabletActivation.length);
+	tabletReuse.fill(false);
+	
+	//var robot = new THREE.Group();
+	//robot.add( neck );
+	robot.add( sphereObject );
+	robot.add( headObject );
+	robot.add( rotator );
+	
+	var legs = new THREE.Group();
+	for(var i =0; i<8; i++)
+	{
+		legs.add(upLegsObject[i]);
+		legs.add(downLegsObject[i]);
+	}
+	
+	//add the robot to the scene
+	rotator.add(headObject);
+	scene.add(robot);
+
+	//render();
+	var robotStop=false;
+	function velocityCalculation()
+	{
+		var noWallInFront = false
+		noWallInFront = ( (robot.position.x<25 & !tabletActivation[0]) | (robot.position.x<442 & tabletActivation[0]) | (tabletActivation[6] & robot.position.x< 622) | (tabletActivation[7] & robot.position.x< 682) )
+		
+		if(!robotStop)
+		{
+			if(keyboard.pressed("A") & keyboard.pressed("D"))
+			{
+				if (Math.abs(velocity)>0.1)
+				{
+					velocity = velocity/1.1;
+				}
+				else
+					velocity = 0;
+				velocityDir = 0;
+			}
+			else if(keyboard.pressed("D") & noWallInFront)
+			{
+				if (velocity<maxvelocity)
+				{
+					velocity += 0.5;
+					velocityDir =1;
+				}
+			}
+			else if(keyboard.pressed("A") & robot.position.x>=-13)
+			{
+				if (velocity>-maxvelocity)
+				{
+					velocity -= 0.5;
+					velocityDir =-1;
+				}
+			}
+			else
+			{
+				if (Math.abs(velocity)>0.1)
+				{
+					velocity = velocity/1.1;
+				}
+				else
+					velocity = 0;
+
+				velocityDir = 0;
+			}
+		}
+		if(finished)
+		{	
+			if(robot.position.x>650)
+			{
+				velocity = 0;
+				velocityDir = 0;
+				end=true;
+			}
+			else
+			{
+				velocity = 3;
+				velocityDir = 1;
+			}
+		}
+	}
+	
+	function robotSelfAnimation()
+	{
+		if( !torchIsOn )
+	   	{
+			if ( !headIsRotating & Math.random() >= 0.99)
+				{
+					headIsRotating=true;
+
+					if(Math.random() >= 0.5)
+						sign = -sign;
+					counter=0;
+				}
+
+			if (headIsRotating & Math.abs(counter)<2*Math.PI)
+				{
+					counter += sign * 0.4;
+					headObject.rotation.y = counter;
+				}
+			else
+				{
+					headIsRotating = false;
+				}
+
+
+			rotator.rotation.z= dampingZ = sign1*0.5*Math.sin(2*headTime);
+			rotator.rotation.x= dampingX = sign2*0.5*Math.sin(3*headTime);
+		}
+		
+		if(spiderMode & !robotIsMoving)
+		{
+			robot.translateY(-0.01*(robotScale/3)*(Math.sin(3*spiderTime)));
+			for(var i=0; i<8; i++)
+			{
+				upLegsObject[i].rotateZ(-0.005*(Math.sin(3*spiderTime)));
+				knees[i].rotateZ(0.005*(Math.sin(3*spiderTime)));
+			}
+			spiderTime+=0.015
+			
+			if(!intro2)
+				legSpasm();
+		}
+		
+
+	}
+	
+	function robotRoll() 
+	{	
+		if (torchIsOn & velocity!=0)
+		{
+			torchIsOn = false;
+			torchlight1.intensity=0.0;
+			torchlight2.intensity=0.0;
+			materialLight.emissiveIntensity=0;
+			
+		}
+		if (torchIsOn)
+		{
+			robotStop=true;
+			headAtPoint(0,true);
+			moveTorchlight();
+		}
+		else
+		{
+			robotStop=false;
+			rotator.position.y = 0.1*(Math.abs(velocity))*robotScale;
+			if(headObject.getWorldDirection(vec3).z>0)
+				headObject.rotation.z = 0.3*velocity;
+			else
+				headObject.rotation.z = -0.3*velocity;
+			sphereObject.rotation.z = rotationAngles[sphereId] -= 0.05*velocity;
+			robot.translateX(0.05*velocity*robotScale); 
+		}
+		if(!headIsRotating & !torchIsOn)
+			headObject.rotation.y=headObject.rotation.y/1.2		
+		
+		
+		if (Math.abs(velocity)==0)	
+			robotSelfAnimation();
+
+		else
+		{
+			if(!torchIsOn)
+				rotator.rotation.z = -0.2*velocity+dampingZ;
+			
+			rotator.rotation.x = dampingX = dampingX/1.2;
+			dampingZ=dampingZ/1.12;
+			headTime=0;
+			if(Math.random() >= 0.5)
+			{
+				sign1= -sign1;
+			}
+			if(Math.random() >= 0.5)
+			{
+				sign2= -sign2;
+			}
+		}
+		
+		if (headIsRotating & velocity!=0)
+		{
+			if(counter<2*Math.PI)
+			{
+				if (headIsRotating & counter<2*Math.PI)
+				{
+					counter += 0.4;
+					headObject.rotation.y = counter;
+				}
+				else
+				{
+					headIsRotating = false;
+					counter = 0;
+				}
+			}
+		}
+	}
+	
+	function headAtPoint(position=0, excludeHead=false)
+	{
+		rotator.rotation.z= rotator.rotation.z/1.1;
+		rotator.rotation.x= rotator.rotation.x/1.1+position;
+		if(!excludeHead)
+		{
+			headObject.rotation.y = headObject.rotation.y/1.1;
+			headObject.rotation.z = headObject.rotation.z/1.1;
+		}
+	}
+	
+	var stepsoundFlag = false;
+	function ballToLegsTransformation(instantaneous=false)
+	{
+		spiderTime=0;
+		scene.add(legs);
+		robot.add(legs);
+		robotSelfAnimation();
+
+		for(var i =0; i<8; i++)
+		{
+			upLegsObject[i].add(knees[i]);
+			knees[i].add(downLegsObject[i]);
+			downLegsObject[i].add(feet[i]);
+		}
+		
+		if(!instantaneous)
+		{
+			
+			if (upLegsObject[0].position.y < -0.1*robotScale)
+			{
+				for(var i =0; i<8; i++)
+					upLegsObject[i].translateY(0.2);
+			}
+
+			else if(rotationAngles[kneesId] > 0.5*Math.PI)
+			{
+				for(var i =0; i<8; i++)
+					knees[i].rotation.z = rotationAngles[kneesId];
+
+				rotationAngles[kneesId] -= 0.12;
+			}
+
+			else if(feet[0].getWorldPosition(vec3).y>(robot.position.y-robotScale) && !step)
+			{
+					for(var i =0; i<8; i++)
+					{
+						upLegsObject[i].rotateZ(0.02);
+					}
+			}
+
+			else if(robot.position.y<robotHeight)
+			{
+				if(!stepsoundFlag)
+				{
+					var audioLoaderIA = new THREE.AudioLoader();
+						if(footstepSound.isPlaying==false){
+							audioLoaderIA.load( 'sounds/soundStep.ogg', function( buffer ) {
+							footstepSound.setBuffer( buffer );
+							footstepSound.setVolume( 0.5 );
+							footstepSound.play();
+							}); }
+					stepsoundFlag=true;	
+				}
+				
+				step=true;
+				if(feet[0].getWorldPosition(vec3).y<=0 || feet[1].getWorldPosition(vec3).y<=0)
+					robot.translateY(0.02*(robotScale/3));
+				else
+				{
+					for(var i=0; i<8; i++)
+					{
+						upLegsObject[i].rotateZ(0.02);
+						knees[i].rotateZ(-0.02);
+					}
+				}
+			}
+
+			else
+			{
+				stepsoundFlag=false;
+				step=false;
+				transformation=2;
+				spiderMode=true;
+			}
+		}
+		else
+		{
+			while (upLegsObject[0].position.y < -0.1*robotScale)
+			{
+				for(var i =0; i<8; i++)
+					upLegsObject[i].translateY(0.2);
+			}
+			
+			robot.position.y=2.0400000000000023;
+			
+			rotationAngles[kneesId] = 0.5*Math.PI;
+			
+			upLegsObject[0].rotation.z= 1.7480972450961723;
+			upLegsObject[1].rotation.z= 1.7480972450961723;
+			upLegsObject[2].rotation.z= -1.3934954084936213;
+			upLegsObject[3].rotation.z= -1.3934954084936213;
+			upLegsObject[4].rotation.z= 1.7480972450961723;
+			upLegsObject[5].rotation.z= 1.7480972450961723;
+			upLegsObject[6].rotation.z= -1.3934954084936213;
+			upLegsObject[7].rotation.z= -1.3934954084936213;
+			
+			for(var i =0; i<8; i++)
+				knees[i].rotation.z=1.281592653589791 ;
+			
+			transformation=2;
+			spiderMode=true;
+		}
+		
+		
+	}
+	
+	function legSpasm()
+	{
+		if ( !legIsDoingSpasm && Math.random() >= 0.99)
+		{
+			legIsDoingSpasm=true;
+			spasmCounter=-5;
+			legId = Math.floor(8*Math.random());
+		}
+		if(legIsDoingSpasm)
+		{
+			upLegsObject[legId].rotateZ((spasmCounter/Math.abs(spasmCounter))*0.1);
+			spasmCounter+=2;
+			if(spasmCounter==7)
+			{
+				legIsDoingSpasm=false;
+
+				var audioLoaderIA = new THREE.AudioLoader();
+				audioLoaderIA.load( 'sounds/soundStep.ogg', function( buffer ) {
+				footstepSound.setBuffer( buffer );
+				footstepSound.setVolume( 0.5 );
+				footstepSound.play();
+				});
+			}
+		}
+	}
+	
+	robotIsInteractingWithTablet = false;
+	var tabletDisplayOn = false;
+	var saveRotationsForTabletInteraction = new Array(4);
+	for(i=0; i<saveRotationsForTabletInteraction.length; i++)
+		saveRotationsForTabletInteraction[i] = new THREE.Euler();
+	
+	function legsAnimation()
+	{
+		function legStep(stepsize=0.1*robotScale)
+		{
+			
+			if (sign3==0)
+			{
+				if(velocityDir>0)
+					sign3=1;
+				else if (velocityDir<0)
+					sign3=-1;
+			}
+			
+			else
+			{
+				var c=(sign3+1)/2;
+				robotIsMoving=true;
+				if (counter1<4)
+				{
+					upLegsObject[0+c].rotateZ(-0.15);
+					upLegsObject[0+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[2+c].rotateZ(-0.15);
+					upLegsObject[2+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[4+c].rotateZ(-0.15);
+					upLegsObject[4+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[6+c].rotateZ(-0.15);
+					upLegsObject[6+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					
+					upLegsObject[3*c].rotateZ(0.075);
+					upLegsObject[3*c+4].rotateZ(0.075);
+					upLegsObject[3*c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.05);
+					upLegsObject[3*c+4].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.05);
+					knees[3*c].rotateZ(-0.17);
+					knees[3*c+4].rotateZ(-0.17);
+					
+					counter1++;
+					
+					if(step1)
+					{
+						upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						
+						robot.translateX(sign3*stepsize);
+					}
+				}
+				else if( counter1<8)
+				{
+					upLegsObject[0+c].rotateZ(0.15);
+					upLegsObject[0+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[2+c].rotateZ(0.15);
+					upLegsObject[2+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[4+c].rotateZ(0.15);
+					upLegsObject[4+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[6+c].rotateZ(0.15);
+					upLegsObject[6+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+
+					counter1++;
+					
+					upLegsObject[3*c].rotateZ(0.075);
+					upLegsObject[3*c+4].rotateZ(0.075);
+					upLegsObject[3*c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.05);
+					upLegsObject[3*c+4].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.05);
+					knees[3*c].rotateZ(-0.17);
+					knees[3*c+4].rotateZ(-0.17);
+										
+					if(step1)
+					{
+						upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						
+						robot.translateX(sign3*stepsize);
+					}
+					
+					if(velocityDir==sign3)
+						step2=true;
+					if(velocityDir==0 || velocityDir!=sign3 || transformation==3)
+						step2=false;
+						
+					if(counter1==7)
+					{
+						var audioLoaderIA = new THREE.AudioLoader();
+						audioLoaderIA.load( 'sounds/soundStep.ogg', function( buffer ) {
+						footstepSound.setBuffer( buffer );
+						footstepSound.setVolume( 0.5 );
+						footstepSound.play();
+						});
+					}
+				}
+				else if(counter1<12)
+				{
+					upLegsObject[0+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[2+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[4+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[6+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					
+					upLegsObject[1-c].rotateZ(-0.15);
+					upLegsObject[3-c].rotateZ(-0.15);
+					upLegsObject[5-c].rotateZ(-0.15);
+					upLegsObject[7-c].rotateZ(-0.15);
+					
+					upLegsObject[3*c].rotateZ(-0.075+(0.01*(counter1-8)));
+					upLegsObject[3*c+4].rotateZ(-0.075+(0.01*(counter1-8)));
+					upLegsObject[3*c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.05);
+					upLegsObject[3*c+4].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.05);
+					knees[3*c].rotateZ(0.15);
+					knees[3*c+4].rotateZ(0.15);
+					
+					if(step2)
+					{
+						upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					}
+
+					robot.translateX(sign3*stepsize);
+					counter1++;
+				}
+				else if(counter1<16)
+				{
+					upLegsObject[0+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[2+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[4+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[6+c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					
+					upLegsObject[1-c].rotateZ(0.15);
+					upLegsObject[3-c].rotateZ(0.15);
+					upLegsObject[5-c].rotateZ(0.15);
+					upLegsObject[7-c].rotateZ(0.15);
+					
+					upLegsObject[3*c].rotateZ(-0.075-(0.01*(counter1-12)));
+					upLegsObject[3*c+4].rotateZ(-0.075-(0.01*(counter1-12)));
+					upLegsObject[3*c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.05);
+					upLegsObject[3*c+4].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.05);
+					knees[3*c].rotateZ(0.19);
+					knees[3*c+4].rotateZ(0.19);
+					
+					if(step2)
+					{
+						upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+						upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+						upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					}
+					
+					
+					robot.translateX(sign3*stepsize);
+					counter1++;
+					
+					if(velocityDir==sign3)
+						step1=true;
+					if(velocityDir==0 || velocityDir!=sign3 || transformation==3)
+						step1=false;
+						
+					if(counter1==15)
+					{
+						var audioLoaderIA = new THREE.AudioLoader();
+						audioLoaderIA.load( 'sounds/soundStep.ogg', function( buffer ) {
+						footstepSound.setBuffer( buffer );
+						footstepSound.setVolume( 0.5 );
+						footstepSound.play();
+						}); 
+					}
+				}
+				else if(!step2)
+				{
+					transitions=0;
+					counter1=0;
+					sign3=0;
+					robotIsMoving=false;
+					step1=false;
+					step2=false;
+				}
+				else if(counter1<20 && !step1)
+				{
+					
+					upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					
+					upLegsObject[c].rotateZ(-0.15);
+					upLegsObject[2+c].rotateZ(-0.15);
+					upLegsObject[4+c].rotateZ(-0.15);
+					upLegsObject[6+c].rotateZ(-0.15);
+					
+					robot.translateX(sign3*stepsize);
+					counter1++;
+					
+				}
+				else if(counter1<24 && !step1)
+				{
+					upLegsObject[1-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[3-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -sign3*0.58*stepsize);
+					upLegsObject[5-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					upLegsObject[7-c].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), sign3*0.58*stepsize);
+					
+					upLegsObject[0+c].rotateZ(0.15);
+					upLegsObject[2+c].rotateZ(0.15);
+					upLegsObject[4+c].rotateZ(0.15);
+					upLegsObject[6+c].rotateZ(0.15);
+					
+					robot.translateX(sign3*stepsize);
+					counter1++;
+				}
+				else if(!step1)
+				{
+					var audioLoaderIA = new THREE.AudioLoader();
+					audioLoaderIA.load( 'sounds/soundStep.ogg', function( buffer ) {
+					footstepSound.setBuffer( buffer );
+					footstepSound.setVolume( 0.5 );
+					footstepSound.play();
+					}); 
+					transitions=0;
+					counter1=0;
+					sign3=0;
+					robotIsMoving=false;
+					step1=false;
+					step2=false;
+				}
+				else
+				{
+					counter1=0;
+					robot.translateX(sign3*stepsize);
+				}
+				
+			}
+		}
+		
+		
+		function robotTabletInteraction(saveIndex)
+		{
+			
+			
+			if(counter3<110)
+				headAtPoint(0.1);
+			else
+				headAtPoint(0);
+				
+			if (feet[5].getWorldPosition(vec3).y <3.5 & counter3==0)
+			{
+				upLegsObject[5].rotateZ(-0.015);
+				upLegsObject[6].rotateZ(-0.015);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.003);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.003);
+				knees[5].rotateZ(-0.004);
+				knees[6].rotateZ(-0.004);
+			}
+			else if(counter3<20)
+			{
+				upLegsObject[5].rotateZ(0.03);
+				upLegsObject[6].rotateZ(0.03);
+				knees[5].rotateZ(-0.025);
+				knees[6].rotateZ(-0.025);
+				counter3++;
+			}
+			else if(counter3<30)
+			{
+				upLegsObject[5].rotateZ(-0.015);
+				knees[5].rotateZ(-0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.005);
+				counter3++;
+				
+				if(counter3==29)
+				{
+					tabletBoxes[saveIndex].material=materialTabletOn;
+					tabletLights[saveIndex].intensity=1.2;
+					if(saveIndex==0)
+					{
+						tabletDisplayOn = true;
+						saveRotationsForTabletInteraction[0].copy(upLegsObject[5].rotation)
+						saveRotationsForTabletInteraction[1].copy(upLegsObject[6].rotation)
+						saveRotationsForTabletInteraction[2].copy(knees[5].rotation)
+						saveRotationsForTabletInteraction[3].copy(knees[6].rotation)
+						scene.add(maze);
+						maze.position.set(tabletPositions[0]+0.15,5,-4.5);
+						maze.rotation.x=-Math.PI/12;
+						animateMaze();
+					}
+				}
+			}
+			else if(counter3<40)
+			{
+				upLegsObject[5].rotateZ(0.02);
+				upLegsObject[6].rotateZ(-0.015);
+				knees[5].rotateZ(0.01);
+				knees[6].rotateZ(-0.025);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.005);
+				counter3++;
+			}
+			else if(counter3<50)
+			{
+				upLegsObject[5].rotateZ(-0.02);
+				upLegsObject[6].rotateZ(0.015);
+				knees[5].rotateZ(-0.01);
+				knees[6].rotateZ(0.025);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.005);
+				counter3++;
+			}
+			else if(counter3<60)
+			{
+				upLegsObject[5].rotateZ(0.015);
+				upLegsObject[6].rotateZ(-0.01);
+				knees[5].rotateZ(0.03);
+				knees[6].rotateZ(-0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.005);
+				counter3++;
+			}
+			else if(counter3<70)
+			{
+				upLegsObject[5].rotateZ(-0.015);
+				upLegsObject[6].rotateZ(0.01);
+				knees[5].rotateZ(-0.03);
+				knees[6].rotateZ(0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.005);
+				counter3++;
+			}
+			else if(counter3<80)
+			{
+				upLegsObject[5].rotateZ(0.015);
+				upLegsObject[6].rotateZ(-0.015);
+				knees[5].rotateZ(0.01);
+				knees[6].rotateZ(-0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.002);
+				counter3++;
+			}
+			else if(counter3<90)
+			{
+				upLegsObject[5].rotateZ(-0.015);
+				upLegsObject[6].rotateZ(0.015);
+				knees[5].rotateZ(-0.01);
+				knees[6].rotateZ(0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.002);
+				counter3++;
+			}
+			else if(counter3<100)
+			{
+				upLegsObject[5].rotateZ(0.015);
+				upLegsObject[6].rotateZ(-0.015);
+				knees[5].rotateZ(0.01);
+				knees[6].rotateZ(-0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.002);
+				counter3++;
+			}
+			else if(counter3<110)
+			{
+				upLegsObject[5].rotateZ(-0.015);
+				upLegsObject[6].rotateZ(0.015);
+				knees[5].rotateZ(-0.01);
+				knees[6].rotateZ(0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.01);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.002);
+				counter3++;
+
+				if(counter3==109)
+			    {
+					if(saveIndex==0 & !tabletActivation[0])
+					{
+						counter3=30;
+						upLegsObject[5].rotation.copy( saveRotationsForTabletInteraction[0] );
+						upLegsObject[6].rotation.copy( saveRotationsForTabletInteraction[1] );
+						knees[5].rotation.copy( saveRotationsForTabletInteraction[2]);
+						knees[6].rotation.copy( saveRotationsForTabletInteraction[3]);
+					}
+					else
+					{
+						if (tabletReuse[saveIndex])
+							tabletActivation[saveIndex]=!tabletActivation[saveIndex];
+						else
+						{
+							tabletActivation[saveIndex]=true;
+							if (saveIndex==7)
+								finished=true;
+							//console.log(saveIndex);
+
+						}
+					}
+			    }
+			}
+			else if(counter3<120)
+			{
+				tabletBoxes[saveIndex].material=materialTabletOff;
+				tabletLights[saveIndex].intensity=0;
+				upLegsObject[5].rotateZ(0.015);
+				knees[5].rotateZ(0.01);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.005);
+				counter3++;
+			}
+			else if(counter3<140)
+			{
+				upLegsObject[5].rotateZ(-0.03);
+				upLegsObject[6].rotateZ(-0.03);
+				knees[5].rotateZ(0.025);
+				knees[6].rotateZ(0.025);
+				counter3++;
+
+			}
+			else if (feet[5].getWorldPosition(vec3).y >(robot.position.y-robotScale))
+			{
+				upLegsObject[5].rotateZ(0.015);
+				upLegsObject[6].rotateZ(0.015);
+				upLegsObject[5].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), 0.003);
+				upLegsObject[6].rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -0.003);
+				knees[5].rotateZ(0.004);
+				knees[6].rotateZ(0.004);
+				robotIsInteractingWithTablet=false;
+			}
+			else
+			{
+				counter3=0;
+				headTime=0;
+				transitions=0;
+			}
+			
+		}
+		
+		if(torchIsOn & robotStop)
+			robotStop=false;
+		
+		switch(transitions)
+		{
+			case 0:
+					
+				if (velocityDir!=0)
+					transitions=1;
+				
+				if(	torchIsOn )
+					moveTorchlight();	
+				robotSelfAnimation();
+				
+				for(i=0; i< tabletPositions.length; i++)
+					if (Math.abs(tabletPositions[i]-robot.position.x)<2)
+					{
+						//console.log("press F to interact, nTablet="+i + " , tabletPosition=" + tabletPositions[i]);
+						
+						if ((keyboard.pressed("F") & (!tabletActivation[i] | tabletReuse[i])) | switchToInteract )
+						{
+							if((i!=1 | liftUsable) & (gravityFlag | i!=7) )
+							{
+								saveIndex=i;
+								stepsize=(Math.abs(robot.position.x-tabletPositions[i])/8);
+								robotIsInteractingWithTablet = true;
+								transitions = 2;
+								switchToInteract=false;
+							}
+							
+						}
+					}
+				
+				break;
+			case 1:
+				legStep();
+				if(	torchIsOn )
+					moveTorchlight();
+				robotSelfAnimation();
+				break;
+			case 2:
+				if (Math.abs(robot.position.x-tabletPositions[saveIndex])>0.3 & !robotIsMoving)
+				{
+					if((tabletPositions[saveIndex]-robot.position.x)>0)
+						velocityDir=1;
+					else
+						velocityDir=-1;
+						
+					legStep(stepsize);
+					transitions = 2;
+					//console.log(tabletPositions[saveIndex]);
+				}
+				else
+				{
+					velocityDir=0;
+					legStep(stepsize);
+					transitions = 2;
+					
+					if(!robotIsMoving)
+					{
+						robotTabletInteraction(saveIndex);
+					}
+				}
+
+				break;
+		}
+	}
+	
+	
+	function legsToBallTransformation()
+	{
+		spiderMode=false;
+		robotSelfAnimation();
+		if(robot.position.y>robotScale)
+		{
+			if(feet[0].getWorldPosition(vec3).y>0)
+				robot.translateY(-0.02*(robotScale/3));
+			else
+				for(var i=0; i<8; i++)
+				{
+					upLegsObject[i].rotateZ(-0.01);
+					knees[i].rotateZ(0.01);
+				}
+		}
+		else if (upLegsObject[0].rotation.z > upLegsInitialRotation[0].z)
+		{
+			for(var i =0; i<8; i++)
+				upLegsObject[i].rotateZ(-0.01);
+		}
+		else if(rotationAngles[kneesId] < Math.PI)
+		{
+			for(var i =0; i<8; i++)
+				knees[i].rotation.z = rotationAngles[kneesId];
+			rotationAngles[kneesId] += 0.06;
+
+		}
+		else if(upLegsObject[0].position.y > -0.33*robotScale)
+		{
+			for(var i =0; i<8; i++)
+				upLegsObject[i].translateY(-0.1);
+		}
+		else
+		{
+			transformation=0;
+			scene.remove(legs);
+			robot.remove(legs);
+			initializeLegs();
+		}
+		
+		
+	}
+	
+	var buttonPressed = false;
+	function turnTorchlight()
+	{
+		if ( !keyboard.pressed("T") )
+			buttonPressed=false;
+		
+		if(keyboard.pressed("T") & !buttonPressed)
+		{
+			torchIsOn = !torchIsOn;
+			buttonPressed=true;
+			
+			if (torchIsOn)
+			{
+				torchlight1.intensity=0.7;			
+				torchlight2.intensity=0.7;
+				materialLight.emissiveIntensity=1;
+			}
+			else
+			{
+				torchlight1.intensity=0.0;
+				torchlight2.intensity=0.0;
+				materialLight.emissiveIntensity=0;
+
+			}
+
+		}
+
+	}
+	
+	var Qpressed = false;
+	var Epressed = false;
+	function moveTorchlight()
+	{
+		headTime=0;
+		
+		headAtPoint(0, true);
+		
+		if(keyboard.pressed("Q"))
+		{
+			headObject.rotateY(0.1)
+			Qpressed=true;
+		}
+		else if(keyboard.pressed("E"))
+		{
+			headObject.rotateY(-0.1)
+			Epressed=true;
+		}
+	}
+	
+	var switchToInteract = false;
+	//Animation of the robot
+	function robotAnimation() {
+
+		headTime += 0.015;
+		if(keyboard.pressed("1") & gravityFlag)
+		{
+			if(transformation==0)
+				transformation = 1;
+			else if (transformation==2)
+				transformation = 3;
+		}
+		
+		turnTorchlight();
+		
+		//intro
+		if(intro2 & !spiderMode)
+			ballToLegsTransformation(true);
+		else if(intro2 & robot.position.x<0)
+		{
+			if(doorCapsule.rotation.y<0)
+			{
+				if (!robotIsMoving)
+					setTimeout( function() 
+					{
+						velocity = 3;
+						velocityDir = 1;
+					}, 1000);
+				else
+				{
+					velocity = 3;
+					velocityDir = 1;
+				}
+			}
+		}
+		if(!intro)
+			switch (transformation)
+			{
+				case 0:
+					robotRoll();
+					velocityCalculation();
+					
+					for(i=0; i< tabletPositions.length; i++)
+					if (Math.abs(tabletPositions[i]-robot.position.x)<2)
+					{
+						//console.log("press F to interact, nTablet="+i + " , tabletPosition=" + tabletPositions[i]);
+						
+						if (keyboard.pressed("F") & (!tabletActivation[i] | tabletReuse[i]))
+						{
+							if((i!=1 | liftUsable) & (gravityFlag | i!=7) & !switchToInteract)
+							{
+								switchToInteract = true;
+								transformation=1;
+								console.log("azz");
+							}
+							
+						}
+					}
+					break;
+					
+				case 1:
+					if (Math.abs(velocity)>0.3)
+					{
+						velocity=velocity/1.1;
+						robotRoll();
+					}
+					else
+					{
+						ballToLegsTransformation();
+						velocity=velocity/1.1;
+					}
+					break;
+					
+				case 2:
+					if (!intro & !intro2)
+						velocityCalculation();
+					legsAnimation();
+					break;
+					
+				case 3:
+					if (robotIsMoving)
+					{
+						velocityCalculation();
+						robotSelfAnimation();
+						legsAnimation();
+					}
+					else
+					{
+						transitions=0;
+						legsToBallTransformation();
+						velocity=velocity/1.1;
+					}
+					break;
+		}
+		
+
+		/*SHORTCUTS
+		if(keyboard.pressed("Z") & keyboard.pressed("X"))
+			robot.translateX(-4);
+		if(keyboard.pressed("C") & keyboard.pressed("V"))
+			robot.translateX(4);
+		
+		if(keyboard.pressed("U") )
+		{
+			tabletActivation[0]=true;
+			tabletActivation[6]=true;
+			//tabletActivation[7]=true;
+			liftUsable=true;
+		}
+		if(keyboard.pressed("I") )
+		{
+			gravityFlag=true;
+		}
+		*/
+			
+	}
+	
+	
+	//****************************************************************************//
+	//*****************************-ROBOT-SCRIPT**********************************//
+	//**********************************END***************************************//
+	//****************************************************************************//
+	
+</script>
+	
+	
+<script type="text/javascript">
+	
+	//***************************************************************************//
+	//*****************************-MAP SCRIPT-**********************************//
+	//*********************************START*************************************//
+	//***************************************************************************//
+	
+	var doorsArray = [];
+	var doorsContainerArray = [];
+	var containerFlag = false;
+	var containerFlag1 = false;
+	var containerFlag2 = false;
+
+	var roomHasFrontDoor = [];
+	var roomHasBackDoor = [];
+	var boxLength =1.7;
+	var boxDepth = 1.1;
+	
+
+var texture = loaderTexture.load( "textures/Earth.png" );
+//var texture = THREE.ImageUtils.loadTexture('http://www.transparentpng.com/download/space/space-planet-png-3.png');
+texture.wrapS = THREE.RepeatWrapping;
+texture.wrapT = THREE.RepeatWrapping;
+
+var backgroundMesh = new THREE.Mesh(
+	    	/*new THREE.PlaneBufferGeometry(160*1.5,106*1.5,1),*/
+	    	new THREE.SphereBufferGeometry(10000, 30, 30),
+			new THREE.MeshBasicMaterial({
+	    		map: texture,
+			}));
+
+backgroundMesh.position.set(120,5,-40000);
+backgroundMesh.rotateY(-Math.PI/2);
+//backgroundMesh.material.depthTest = false;
+//backgroundMesh.material.depthWrite = false;
+	
+var earthRotator = new THREE.Group();
+	earthRotator.add(backgroundMesh);
+scene.add(earthRotator);
+
+
+/*var PlaneBufferGeometry1 = new THREE.PlaneBufferGeometry(2,2,1);
+var MeshBasicMaterial1 = new THREE.MeshBasicMaterial();
+var Mesh1 = new THREE.Mesh(PlaneBufferGeometry1, MeshBasicMaterial1);
+scene.add(Mesh1);
+Mesh1.position.set(1,1,1);
+PlaneBufferGeometry1.width = 5;
+Mesh1.position.set(3,3,3);
+*/
+	
+	//-------------------------------------------------------------//
+	//----------------------CREATE-OBJECTS-------------------------//
+	//-------------------------------------------------------------//
+
+	//:::::::::::STRUCTURE:::OBJECTS:::::::::::::
+		
+	//CREATE A WALL
+	function createWall(wallWidth, roomHeight)
+	{
+		var wallObject=createObject(new THREE.BoxGeometry(wallWidth,roomHeight,0.1), new CANNON.Box(new CANNON.Vec3(wallWidth/2,roomHeight/2,0.1/2)), 0 , createMaterial( null , "textures/walls and others/mine.png"));
+		
+		return wallObject;
+	}
+	
+	//CREATE A WINDOW
+	function createWindow(starshipWindowWidth, starshipWindowHeight)
+	{
+		var starshipWindowGroup = new THREE.Group();
+		
+		var starshipWindowObject = new THREE.Object3D();
+		var geometry = new THREE.Geometry();
+		
+		var bottomSObject = createObject(new THREE.BoxGeometry(starshipWindowWidth,2,2), new CANNON.Box(new CANNON.Vec3(starshipWindowWidth/2,1,1)),0,darkGrey);
+		bottomSObject.position.set(0,-starshipWindowHeight/2+1,0);
+		var topSObject = createObject(new THREE.BoxGeometry(starshipWindowWidth,2,2), new CANNON.Box(new CANNON.Vec3(starshipWindowWidth/2,1,1)),0,darkGrey );
+		topSObject.position.set(0,starshipWindowHeight/2-1,0);
+		var leftSObject = createObject(new THREE.BoxGeometry(2,starshipWindowHeight,2), new CANNON.Box(new CANNON.Vec3(1,starshipWindowHeight/2,1)),0,darkGrey );
+		leftSObject.position.set(-starshipWindowWidth/2,0,0);
+		var rightSObject = createObject(new THREE.BoxGeometry(2,starshipWindowHeight,2), new CANNON.Box(new CANNON.Vec3(1,starshipWindowHeight/2,1)),0,darkGrey );
+		rightSObject.position.set(starshipWindowWidth/2,0,0)
+		
+		/*starshipWindowObject = mergeLastFixedObjects(4)*/
+		
+		var windowGlass=createObject(new THREE.BoxGeometry(starshipWindowWidth,starshipWindowHeight,0.1), new CANNON.Box(new CANNON.Vec3(starshipWindowWidth/2,starshipWindowHeight/2,0.1/2)), 0 ,materialGlass )
+		
+		starshipWindowGroup.add(bottomSObject, topSObject, leftSObject, rightSObject);
+		return starshipWindowGroup;
+	}
+	
+	//CREATE A DOOR
+	function createDoor(doorHeight, doorWidth)
+	{
+		var doorObject = createObject(new THREE.BoxBufferGeometry(1.2,doorHeight,doorWidth), new CANNON.Box(new CANNON.Vec3(1.2/2,doorHeight/2,doorWidth/2)),0, createMaterial( null, "textures/figo.jpg") );
+		return doorObject;
+	}
+	
+	
+	//CREATE A WALL FOR DOOR
+	function createWallForDoor(depth,height, thickness=2, doorWidth=8, doorHeight=10, glass=false)
+	{
+		var wall1Object = createObject(new THREE.BoxGeometry(thickness,height,(depth-doorWidth)/2), new CANNON.Box(new CANNON.Vec3(thickness/2,height/2,(depth-doorWidth)/4)));
+		wall1Object.position.set(0,height/2,-(doorWidth/2)-((depth-doorWidth)/4));
+		var wall2Object = createObject(new THREE.BoxGeometry(thickness,height,((depth/2)-(doorWidth/2))), new CANNON.Box(new CANNON.Vec3(thickness/2,height/2,((depth/2)-(doorWidth/2))/2)));
+		wall2Object.position.set(0,height/2,+(doorWidth/2)+((depth-doorWidth)/4));
+		
+		var wallForDoor1 = new THREE.Object3D();
+		if(!glass)
+			wallForDoor1= mergeLastFixedObjects(2, createMaterial( null , "textures/walls and others/mine.png"));
+		
+		var wall3Object = createObject(new THREE.BoxGeometry(thickness,height-doorHeight,doorWidth), new CANNON.Box(new CANNON.Vec3(thickness/2,(height-doorHeight)/2,doorWidth/2)));
+		wall3Object.position.set(0,height-((height-doorHeight)/2),0);
+		
+		var wallForDoor = new THREE.Object3D();
+
+		if(glass)
+			wallForDoor= mergeLastFixedObjects(3, materialGlass);
+		else
+			wallForDoor.add(wallForDoor1,wall3Object);
+		
+		return wallForDoor;
+	}
+
+	//:::::::::::INTERNAL:::OBJECTS:::::::::::::
+	
+	//CREATE A BASE
+	function createBase(baseWidth, baseHeight, baseDepth, nSteps=4)
+	{
+		var base = new THREE.Object3D();
+		
+		var mainBox= createObject(new THREE.BoxGeometry(baseWidth-baseWidth/6, baseHeight, baseDepth), new CANNON.Box(new CANNON.Vec3((baseWidth-baseWidth/12)/2, baseHeight/2, baseDepth/2)));
+		mainBox.position.y= baseHeight/2;
+		var platform= createObject(new THREE.BoxGeometry(baseWidth/6, baseHeight, baseDepth/2), new CANNON.Box(new CANNON.Vec3(baseWidth/12, baseHeight/2, baseDepth/4)));
+		platform.position.set(baseWidth/2,baseHeight/2, -baseDepth/4);
+		var stairs = new THREE.Group();
+		
+		for (i=0; i<nSteps; i++)
+		{
+			var step= createObject(new THREE.BoxGeometry(baseWidth/6, baseHeight/nSteps, (baseDepth/2)-((baseDepth/2)/nSteps)*i), new CANNON.Box(new CANNON.Vec3(baseWidth/12, baseHeight/2, baseDepth/4)));
+			step.position.set(baseWidth/2,(baseHeight/(2*nSteps))+(i*(baseHeight/nSteps)),(-i*((baseDepth/2)-((baseDepth/2)/nSteps))/4)+baseDepth/4);
+		}
+		
+		base = mergeLastFixedObjects(2+nSteps,createMaterial(null, "textures/grey.jpg"))		
+		return base;
+	}
+	
+	//CREATE A SECURITY CAMERA
+		var securityCameraForAnimation = [];
+	function createsecurityCamera()
+	{
+		//security camera (without substain)
+		var securityCameraGroup = new THREE.Group();
+		
+		var boxObject = createObject(new THREE.BoxBufferGeometry(boxLength,boxDepth,boxDepth), new CANNON.Box(new CANNON.Vec3(boxLength/2,boxDepth/2,boxDepth/2)), 0, createMaterial(null, "textures/smile.jpg") );
+		
+		var eyeObject = createObject(new THREE.CylinderBufferGeometry(boxDepth*0.4,boxDepth*0.4,boxLength/3,8),  new CANNON.Cylinder(boxDepth*0.4,boxDepth*0.4,boxLength/3,8) );
+		eyeObject.rotation.z=Math.PI/2;
+		eyeObject.position.x=-boxLength/2;
+		
+		securityCameraGroup.add(boxObject,eyeObject);
+		securityCameraGroup.rotation.z=Math.PI/6;
+		
+		securityCameraForAnimation.push(securityCameraGroup);
+		
+		//substain for security camera
+		var substainForsecurityCamera = new THREE.Group();
+		
+		var stick1Object = createObject(new THREE.CylinderBufferGeometry(boxDepth*0.2,boxDepth*0.2,boxLength*0.8,3),  new CANNON.Cylinder(boxDepth*0.2,boxDepth*0.2,boxLength*0.8,3)  , 0, createMaterial(null, "textures/figo.jpg") );
+		
+		var stick2Object = createObject(new THREE.CylinderBufferGeometry(boxDepth*0.2,boxDepth*0.2,boxLength*1.5,3),  new CANNON.Cylinder(boxDepth*0.2,boxDepth*0.2,boxLength*1.5,3) , 0, createMaterial(null, "textures/figo.jpg") );
+		stick2Object.position.set(boxLength/2,+boxLength/10,0);
+		stick2Object.rotation.z=-Math.PI/4;
+		
+		substainForsecurityCamera.add(stick1Object,stick2Object);
+		substainForsecurityCamera.position.y=-boxLength/2;
+		
+		//security camera group
+		var securityCamera = new THREE.Group();
+		securityCamera.add(securityCameraGroup,substainForsecurityCamera);
+		
+		return securityCamera;
+	}
+
+	
+	//CREATE A TABLET
+	var tabletPositions = [];
+	var tabletBoxes = [];
+	var tabletLights = [];
+	function createTablet() 
+	{
+		var tablet = new THREE.Group();
+		
+		var substainForTablet;
+		substainHeight=4.5;
+		substainAngle=Math.PI/16;
+		substainForTablet= createObject(new THREE.CylinderGeometry(0.3,0.3,substainHeight,3), new CANNON.Cylinder(0.3,0.3,substainHeight,3));
+		substainForTablet.rotation.x=substainAngle;
+		substainForTablet.position.y=(substainHeight/2)*Math.cos(substainAngle);
+		
+		tabletWidth=2.5;
+		tabletHeight=4;
+		tabletDepth=0.2;
+		var box= createObject(new THREE.BoxGeometry(tabletWidth, tabletHeight, tabletDepth), new CANNON.Box(new CANNON.Vec3(tabletWidth/2, tabletHeight/2, tabletDepth/2)), 0, materialTabletOff);
+		box.rotation.x=-Math.PI/12;
+		box.position.set(0,substainHeight*Math.cos(substainAngle),(0.7*substainHeight)*Math.sin(substainAngle) );
+		/*var light= new THREE.SpotLight(0x00ff00, 0.5, 5);
+		light.position.set(5 , substainHeight*Math.cos(substainAngle) + 3 , (0.7*substainHeight)*Math.sin(substainAngle) );
+
+		var help = new THREE.SpotLightHelper(light);
+
+		scene.add(light, help);*/
+		tabletBoxes.push(box);
+		
+		var tabletLight = new THREE.PointLight( 0xffffff, 0, 20, 2 );
+		tabletLight.position.set(0,substainHeight,tabletWidth/2);
+		tabletLights.push(tabletLight);
+		
+		tablet.add(substainForTablet,box,tabletLight);
+		
+		return tablet;
+	}
+	
+	//CREATE A LONG TABLET
+	function createLongTablet() 
+	{
+		var substainHeight=5;
+		var substainAngle=Math.PI/16;		
+		var substains= new THREE.Object3D();
+		var longTablet= new THREE.Object3D();
+
+		substainForTablet0= createObject(new THREE.CylinderGeometry(0.3,0.3,substainHeight,3), new CANNON.Cylinder(0.3,0.3,substainHeight,3));
+		substainForTablet0.rotation.x=substainAngle;
+		substainForTablet0.position.y=(substainHeight/2)*Math.cos(substainAngle);
+						
+		substainForTablet1= createObject(new THREE.CylinderGeometry(0.3,0.3,substainHeight,3), new CANNON.Cylinder(0.3,0.3,substainHeight,3));
+		substainForTablet1.rotation.x=substainAngle;
+		substainForTablet1.position.y=(substainHeight/2)*Math.cos(substainAngle);
+		substainForTablet1.position.x=3;
+		
+		substainForTablet2= createObject(new THREE.CylinderGeometry(0.3,0.3,substainHeight,3), new CANNON.Cylinder(0.3,0.3,substainHeight,3));
+		substainForTablet2.rotation.x=substainAngle;
+		substainForTablet2.position.y=(substainHeight/2)*Math.cos(substainAngle);
+		substainForTablet2.position.x=-3;
+		
+		substains= mergeLastFixedObjects(3)
+			
+		var longBox;
+		tabletWidth=8;
+		tabletHeight=3.5;
+		tabletDepth=0.2;
+		longBox= createObject(new THREE.BoxGeometry(tabletWidth, tabletHeight, tabletDepth), new CANNON.Box(new CANNON.Vec3(tabletWidth/2, tabletHeight/2, tabletDepth/2)), 0, createMaterial(null, "textures/error.png") );
+		longBox.rotation.x=-Math.PI/6;
+		longBox.position.set(0,substainHeight*Math.cos(substainAngle),(0.7*substainHeight)*Math.sin(substainAngle) );
+		
+		longTablet.add(substains, longBox);
+		
+		return longTablet;
+	}
+	//CREATE A CONTROL STATION
+	function createControlStation() 
+	{
+		var controlStation = new THREE.Group();
+		
+		baseHeight = 4;
+		baseRadius =4;
+		var base = createObject(new THREE.CylinderGeometry(baseRadius,baseRadius*0.7,baseHeight,8), new CANNON.Cylinder(baseRadius*0.7,baseRadius,baseHeight,8), 0, createMaterial(null, "textures/futuristic.png"));
+		base.position.y=baseHeight/2;
+		controlStation.add(base);
+		
+		var top = createObject(new THREE.CylinderGeometry(baseRadius*0.6,baseRadius*0.42,0.3,16), new CANNON.Cylinder(baseRadius*0.6,baseRadius*0.42,0.3,16), 0, createMaterial(null, "textures/walls and others/1.jpg"));
+		top.position.y=baseHeight;
+		controlStation.add(top);
+		
+		for (i=0; i<4; i++)
+		{
+			var substain = createObject(new THREE.CylinderGeometry(0.2,0.2,baseHeight*2.5,3), new CANNON.Cylinder(0.2,0.2,baseHeight*2.5,4));
+			substain.rotation.y=((Math.PI*3)/8)-((Math.PI*i)/4);
+			substain.position.set(0,baseHeight*1.25,0);
+			substain.translateZ(-baseRadius);
+		}
+		var substains= mergeLastFixedObjects(4);
+		controlStation.add(substains);
+		
+		tabletWidth=baseRadius*Math.sin(Math.PI/4);
+		tabletHeight=baseHeight*0.4;
+		tabletDepth=0.2;
+		for (i=0; i<4; i++)
+		{
+			var angle = ((Math.PI*3)/8)-((Math.PI*i)/4);
+			for(j=0; j<3; j++)
+			{
+				var tablet= createObject(new THREE.BoxGeometry(tabletWidth, tabletHeight, tabletDepth), new CANNON.Box(new CANNON.Vec3(tabletWidth/2, tabletHeight/2, tabletDepth/2)), 0, createMaterial(null, "textures/codice.jpg"));
+				tablet.rotation.y=angle;
+				tablet.position.y=(baseHeight*1.5)+(j*baseHeight/2)
+				tablet.translateZ(-baseRadius+0.2);
+				controlStation.add(tablet);
+			}
+		}
+		return controlStation;
+	}
+	
+	var containers = [];
+	//CREATE CONTAINER
+	function createContainer(opened=false)
+	{
+		var containerWidth = 27;
+		var containerHeight = 15;
+		var containerDepth = 12;
+		var doorWidth = 8;
+		var doorHeight = 9.5;
+		var braceWidth = 0.5;
+			
+		var containerGroup = new THREE.Group();
+		
+		var door = new THREE.Group();
+		
+		var glass = createObject(new THREE.BoxGeometry(doorWidth+braceWidth,doorHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(doorWidth/2,doorHeight/2,braceWidth/2)), 0, materialGlass);
+		door.add(glass);
+		
+		var braceL = createObject(new THREE.BoxGeometry(braceWidth,doorHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,doorHeight/2,braceWidth/2)));
+		braceL.position.set(-doorWidth/2+braceWidth/2, 0, 0);
+		
+		var braceR = createObject(new THREE.BoxGeometry(braceWidth,doorHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,doorHeight/2,braceWidth/2)));
+		braceR.position.set(doorWidth/2-braceWidth/2, 0, 0);
+		
+		var braceB = createObject(new THREE.BoxGeometry(doorWidth,braceWidth,braceWidth), new CANNON.Box(new CANNON.Vec3(doorHeight/2,braceWidth/2,braceWidth/2)));
+		braceB.position.set(0, -doorHeight/2+braceWidth/2, 0);
+		
+		var braceT = createObject(new THREE.BoxGeometry(doorWidth,braceWidth,braceWidth), new CANNON.Box(new CANNON.Vec3(doorHeight/2,braceWidth/2,braceWidth/2)));
+		braceT.position.set(0, doorHeight/2-braceWidth/2, 0);
+		
+		var braceC = createObject(new THREE.BoxGeometry(braceWidth,doorHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,doorHeight/2,braceWidth/2)));
+		
+		var circle = createObject(new THREE.CylinderGeometry(1.5,1.5,braceWidth,16), new CANNON.Cylinder(1.5,1.5,braceWidth,16));
+		circle.rotateX(Math.PI/2);
+		
+		var bracesDoor = mergeLastFixedObjects(6);
+		//bodies[bodies.length-1]=null;
+		
+		door.add(bracesDoor);
+		
+		if (opened)
+		{
+			door.position.set(-doorWidth, doorHeight/2, containerDepth/2-braceWidth-0.1);
+		}
+		else
+		{
+			door.position.set(0, doorHeight/2, containerDepth/2-braceWidth);
+		}
+		
+		
+		var braceLB = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceLB.position.set(-containerWidth/2, containerHeight/2, -containerDepth/2);
+		
+		var braceLF = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceLF.position.set(-containerWidth/2, containerHeight/2, containerDepth/2);
+		
+		var braceRB = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceRB.position.set(containerWidth/2, containerHeight/2, -containerDepth/2);
+		
+		var braceRF = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceRF.position.set(containerWidth/2, containerHeight/2, containerDepth/2);
+		
+		var braceDoorR = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceDoorR.position.set(doorWidth/2, containerHeight/2, containerDepth/2);
+		
+		var braceDoorL = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,braceWidth/2)));
+		braceDoorL.position.set(-doorWidth/2, containerHeight/2, containerDepth/2);
+		
+		var braceTop = createObject(new THREE.BoxGeometry(doorWidth,braceWidth,braceWidth), new CANNON.Box(new CANNON.Vec3(doorWidth/2,braceWidth/2,braceWidth/2)));
+		braceTop.position.set(0,doorHeight+(braceWidth/2),containerDepth/2);
+		
+		var braces = mergeLastFixedObjects(7);
+		
+		var backWall = createObject(new THREE.BoxGeometry(containerWidth+braceWidth,containerHeight,braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2+containerWidth/2,containerHeight/2,braceWidth/2)));
+		backWall.position.set(0, containerHeight/2, -containerDepth/2);
+		
+		var leftWall = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,containerDepth-braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,containerDepth/2-braceWidth/2)));
+		leftWall.position.set(-containerWidth/2, containerHeight/2, 0);
+		
+		var rightWall = createObject(new THREE.BoxGeometry(braceWidth,containerHeight,containerDepth-braceWidth), new CANNON.Box(new CANNON.Vec3(braceWidth/2,containerHeight/2,containerDepth/2-braceWidth/2)));
+		rightWall.position.set(containerWidth/2, containerHeight/2, 0);
+		
+		var wall = new THREE.Object3D();
+		wall = mergeLastFixedObjects(3, materialGlass)
+		
+		var wallForDoor= createWallForDoor(containerWidth,containerHeight,braceWidth,doorWidth,doorHeight,true);
+		wallForDoor.rotateY(Math.PI/2);
+		wallForDoor.position.set(0, 0, containerDepth/2);
+		
+		containerGroup.add(wall, wallForDoor, braces, door);
+		
+		doorsContainerArray.push(door);
+		
+		return containerGroup;
+	}
+	
+	
+	//CREATE BOX AT WALL
+	function createBoxAtWall() 
+	{
+		var boxAtWall = new THREE.Group();
+		boxHeight = 3;
+		boxWidth = 2;
+		boxDepth = 1;
+		height = 8;
+		
+		var box = createObject(new THREE.BoxGeometry(boxDepth,boxHeight,boxWidth), new CANNON.Box(new CANNON.Vec3(boxDepth/2,boxHeight/2,boxWidth/2)), 0, createMaterial(null, "textures/walls and others/orange.jpg"));
+		box.position.y=height;
+		
+		var tube1 = createObject(new THREE.CylinderGeometry(boxDepth*0.4,boxDepth*0.4,15-height,6), new CANNON.Cylinder(boxDepth*0.4,boxDepth*0.4,15-height,6));
+		tube1.position.set(0, height+boxHeight/2+((15-height)/2), boxWidth/4);
+		var tube2 = createObject(new THREE.CylinderGeometry(boxDepth*0.4,boxDepth*0.4,15-height,6), new CANNON.Cylinder(boxDepth*0.4,boxDepth*0.4,15-height,6));
+		tube2.position.set(0, height+boxHeight/2+((15-height)/2), -boxWidth/4);
+		var tubes = mergeLastFixedObjects(2, createMaterial(new THREE.Color(0x6e6e6e), null));
+		
+		boxAtWall.add(box,tubes);
+		return boxAtWall;
+	}
+	
+	//CREATE TABLE
+	function createTable() 
+	{
+		var leg = createObject(new THREE.CylinderGeometry(1,1,4,5), new CANNON.Cylinder(1,1,4,5));
+		leg.position.y= 2;
+		
+		var box = createObject(new THREE.BoxGeometry(12,1,6), new CANNON.Box(new CANNON.Vec3(6,0.5,3)));
+		box.position.y=4.5;
+		
+		var table = mergeLastFixedObjects(2,createMaterial( new THREE.Color( 0x181818 ), null ));
+		return table;
+	}
+	
+	//var propulsorLight;
+	var triggerEscapePod = false;
+	var counterEscapePod = 0;
+	var propulsorMaterial1  = new THREE.MeshLambertMaterial( {
+		emissive: 0xff0000,
+		emissiveIntensity: 0,
+		color: 0xffffff
+		});	
+	var propulsorMaterial2  = new THREE.MeshLambertMaterial( {
+		emissive: 0x00ffff,
+		emissiveIntensity: 0,
+		color: 0xffffff
+		});	
+	
+	var motor1;
+	var motor2;
+	//CREATE ESCAPE POD
+	function createEscapePod() 
+	{
+		var escapePod = new THREE.Group();
+		
+		var depth =30;
+		var width =13;
+		
+		var cylinder = createObject(new THREE.CylinderGeometry( width, width, depth, 12 ), new CANNON.Cylinder( width, width, depth, 12));
+		cylinder.rotation.x=Math.PI/2;
+		cylinder.position.y=width;
+
+		var base = createObject(new THREE.BoxGeometry(width*2,width,depth),	new CANNON.Box(new CANNON.Vec3(width,width/2,depth/2)));
+		base.position.y=width/2;
+		
+		var body = mergeLastFixedObjects(2);
+		escapePod.add(body);
+		
+		var cylinderBack = createObject(new THREE.CylinderGeometry( width*0.5, width, 3, 12 ), new CANNON.Cylinder( width*0.6, width , 3, 12), 0 , propulsorMaterial1);
+		cylinderBack.rotation.x=Math.PI/2;
+		cylinderBack.position.set(0,width+1,depth/2+1.5);
+		escapePod.add(cylinderBack);
+		
+		var propulsor = createObject(new THREE.CylinderGeometry( width*0.6, width*0.6, 0.5, 12 ), new CANNON.Cylinder( width*0.6, width*0.6, 0.5, 12), 0, propulsorMaterial1);
+		propulsor.rotation.x=Math.PI/2;
+		propulsor.position.set(0,width+1,depth/2+3);
+		escapePod.add(propulsor);
+		
+		motor1 = new THREE.Object3D();
+		for(i=0; i<14; i++)
+		{
+			var circle = createObject(new THREE.CylinderGeometry( 1, 1, 0.5, 12 ), new CANNON.Cylinder( 1, 1, 0.5, 12), 0, propulsorMaterial2);
+			circle.rotation.x=Math.PI/2;
+			circle.rotation.y=(Math.PI/7)*i;
+			circle.translateX(4.5);
+		}
+		motor1= mergeLastFixedObjects(14);
+		motor1.position.set(0,width+1,depth/2+3.25);
+		
+		motor2 = new THREE.Object3D();
+		for(i=0; i<14; i++)
+		{
+			var circle = createObject(new THREE.CylinderGeometry( 1, 1, 0.5, 12 ), new CANNON.Cylinder( 1, 1, 0.5, 12), 0, propulsorMaterial2);
+			circle.rotation.x=Math.PI/2;
+			circle.rotation.y=(Math.PI/7)*i;
+			circle.translateX(6.5);
+		}
+		motor2 = mergeLastFixedObjects(14);
+		motor2.position.set(0,width+1,depth/2+3.25);
+		
+		escapePod.add(motor1,motor2);
+		
+		/*
+		propulsorLight = new THREE.PointLight( 0xff0000, 0, 100, 0.85 );
+		propulsorLight.position.y=2.5;
+		propulsorLight.position.z=1;
+		propulsor.add(propulsorLight);
+		*/
+		
+		return escapePod;
+	}
+	
+	
+	//CREATE CAPSULE
+	var doorCapsule;
+	function createCapsule(root)
+	{
+		var capsule = new THREE.Group();
+		
+		var top1 = createObject(new THREE.TorusBufferGeometry(robotScale*2.3,robotScale*0.2,5,18),null, 0, createMaterial(null, "textures/capsule.jpg"));
+		top1.position.set(-0.1, 9, 0);
+		top1.rotation.x=Math.PI/2;
+		
+		var top2 = createObject(new THREE.CylinderGeometry(robotScale,robotScale*2.4,2.2,18), new CANNON.Cylinder(robotScale,robotScale*2.2,2.1,18), 0, createMaterial(null, "textures/col1.jpg"));
+		top2.position.set(-0.1, 10+robotScale*0.2, 0);
+		var tube = createObject(new THREE.CylinderGeometry(robotScale,robotScale,5,18), new CANNON.Cylinder(robotScale,robotScale,5,18), 0, createMaterial(null, "textures/col1.jpg"));
+		tube.position.set(-0.1, 13.5, 0);
+		//var top2= mergeLastFixedObjects(2);
+		
+		var halfCylinder1= createObject(new THREE.CylinderGeometry(robotScale*2.5,robotScale*2.5,9,18,1,true,Math.PI,Math.PI), new CANNON.Cylinder(robotScale*2.5,robotScale*2.5,9,18));
+		halfCylinder1.position.y=4.5;
+		var edge1_1= createObject(new THREE.BoxGeometry(robotScale*0.3,9,0.3), null, 0, createMaterial( new THREE.Color( 0x000000 ), null));
+		edge1_1.position.z= robotScale*2.35;
+		edge1_1.rotation.y= Math.PI/2;
+		var edge1_2= createObject(new THREE.BoxGeometry(robotScale*0.3,9,0.3), null, 0, createMaterial( new THREE.Color( 0x000000 ), null));
+		edge1_2.position.z= -robotScale*2.35;
+		edge1_2.rotation.y= -Math.PI/2;
+		halfCylinder1.add(edge1_1,edge1_2);
+
+		//edge1_2.material.color = edge1_1.material.color = (new THREE.Color( 0x6699ff ));
+		
+		var halfCylinder2= createObject(new THREE.CylinderGeometry(robotScale*2.2,robotScale*2.2,9,18,1,true,0,Math.PI), null, 0, createMaterial(null, "textures/semplice.jpg"));
+		halfCylinder2.position.set(-0.1,4.5,0);
+		
+		capsule.add(halfCylinder1, top1, top2, tube);
+		
+		if(root)
+		{
+			var halfCylinder1Back= createObject(new THREE.CylinderBufferGeometry(robotScale*2.2,robotScale*2.2,9,18,1,true,Math.PI,Math.PI), null, 0, materialStandardBackSide);
+			halfCylinder1Back.position.y=4.5;
+			halfCylinder1Back.material.map = loaderTexture.load("textures/capsule.jpg");
+			
+			var edge2_1= createObject(new THREE.PlaneBufferGeometry(robotScale*0.3,9), null, 0, createMaterial(new THREE.Color( 0x000000 )));
+			edge2_1.position.z= robotScale*2.05;
+			edge2_1.rotation.y= -Math.PI/2;
+			var edge2_2= createObject(new THREE.PlaneBufferGeometry(robotScale*0.3,9), null, 0, createMaterial(new THREE.Color( 0x000000 )));
+			edge2_2.position.z= -robotScale*2.05;
+			edge2_2.rotation.y= -Math.PI/2;
+			
+			var halfCylinder2Back= createObject(new THREE.CylinderBufferGeometry(robotScale*1.9,robotScale*1.9,9,18,1,true,0,Math.PI), null, 0, materialStandardBackSide);
+			//halfCylinder2Back.material.map = loaderTexture.load("textures/capsule.jpg");
+			//halfCylinder2Back.position.set(-0.1,4.5,0);
+			
+			halfCylinder2.add(halfCylinder2Back);
+			doorCapsule=halfCylinder2;
+			doorCapsule.add(halfCylinder2Back,edge2_1,edge2_2);
+			capsule.add(halfCylinder1Back, doorCapsule);
+			//scene.add(edge1)
+		}
+		else(capsule.add(halfCylinder2))
+		
+		
+		return capsule;
+	}
+	
+
+	
+	//-----------------------------------------------------//
+	//-----------------------ROOMS-------------------------//
+	//-----------------------------------------------------//
+
+
+	// Creazione stanza: a fine funzione sono settate le textures, alcuni oggetti hanno un nome così da potervi accedere più facilmente
+	
+	//CREATE A STARSHIP'S ROOM (WINDOW OR WALL) (COLUMN OR DOOR)
+	function createStandardRoom (window,column, num,intermittent=false)
+	{
+		var standardRoom = new THREE.Group();
+		
+		//room size
+		var roomWidth = 60;
+		var roomDepth = 39;
+		var roomHeight = 15;
+		
+
+		//a starship window and walls
+		var count =2;
+		if(window)
+		{
+			var pieceOfWallWidth = roomWidth/8;
+			var starshipWindowWidth = roomWidth-(2*pieceOfWallWidth);
+			var starshipWindowHeight = roomHeight;
+
+			var starshipWindowGroup = createWindow(starshipWindowWidth, starshipWindowHeight);
+			starshipWindowGroup.position.set(0,starshipWindowHeight/2,-roomDepth/2);
+			
+
+/*			for (i=0; i<starshipWindowGroup.children.length; i++ ){
+				standardRoom.add(starshipWindowGroup.children[i]);
+			}*/
+
+			var wallRObject = createWall(pieceOfWallWidth,roomHeight);
+			wallRObject.position.set((starshipWindowWidth/2)+(pieceOfWallWidth/2),roomHeight/2,-roomDepth/2);
+			var wallLObject = createWall(pieceOfWallWidth,roomHeight);
+			wallLObject.position.set(-(starshipWindowWidth/2)-(pieceOfWallWidth/2),roomHeight/2,-roomDepth/2);
+			count+=2;
+
+			standardRoom.add(starshipWindowGroup, wallRObject, wallLObject);
+		}
+		else
+		{
+			var wallObject = createWall(roomWidth,roomHeight);
+			wallObject.position.set(0,roomHeight/2,-roomDepth/2);
+			/*count++;*/
+			wallObject.name = wallObject;
+
+			standardRoom.add(wallObject);
+		}
+		
+		//floor
+		var floorObject = createObject(new THREE.BoxGeometry(roomWidth,roomDepth,0.1),	new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth/2,0.1/2)), 0 , createMaterial(null, "textures/walls and others/fut_neon.jpg"));
+		floorObject.rotation.set(-Math.PI/2,0,0);
+		floorObject.name = floorObject;
+		
+		//ceiling
+		var ceilingObject = createObject(new THREE.BoxGeometry(roomWidth,roomDepth,0.1), new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth/2,0.1/2)));
+		ceilingObject.rotation.set(Math.PI/2,0,0);
+		ceilingObject.position.y=roomHeight;
+		ceilingObject.name = ceilingObject;
+
+
+		/*var someStructureObjects = mergeLastFixedObjects(count);
+		someStructureObjects.castShadow=false;*/
+		standardRoom.add(floorObject, ceilingObject);
+
+		//column
+		if(column)
+		{
+			var columnObject = createObject(new THREE.BoxGeometry(5,roomHeight,4), new CANNON.Box(new CANNON.Vec3(5/2,roomHeight/2,4/2)), 0, createMaterial ( new THREE.Color( 0x6e6e6e ),null));
+			columnObject.position.set(roomWidth/2,roomHeight/2,-roomDepth/2+2);
+			standardRoom.add(columnObject)
+			}
+		//wall for door
+		else
+		{
+
+			var wallForDoorGroup = createWallForDoor(roomDepth,roomHeight);
+			wallForDoorGroup.position.x=roomWidth/2;
+			standardRoom.add(wallForDoorGroup);
+			
+			var door = createDoor(10, 9);
+			door.position.set(30+60*num,5,0);
+			
+			doorsArray[num]=door;
+			roomHasBackDoor[num+1]=true;
+			
+			scene.add(doorsArray[doorsArray.length-1]);
+			
+		}
+		/*standardRoom.add(someStructureObjects);*/
+		var light = roomLight( intermittent);
+		standardRoom.add(light);
+
+		standardRoom.position.x=60*(num);
+
+		return standardRoom;
+
+	}
+	
+	var gateEscapePod1;
+	var gateEscapePod2;
+	//CREATE ESCAPEPOD ROOM
+	function createEscapePodRoom (num)
+	{
+		var standardRoom = new THREE.Group();
+		var extension = new THREE.Group();
+		
+		//room size
+		var roomWidth = 60;
+		var roomDepth = 39;
+		var roomHeight = 30;
+		var wallProportionX = 0.25;
+		var wallProportionY = 0.4;
+		
+		//a starship window and walls
+		var wallObject1 = createObject(new THREE.BoxGeometry(roomWidth*(1-wallProportionX),roomHeight,2),	new CANNON.Box(new CANNON.Vec3(roomWidth*((1-wallProportionX)/2),roomHeight/2,1)), 0, materialGlass);;
+		wallObject1.position.set(roomWidth*(wallProportionX/2),roomHeight/2,-roomDepth/2);
+		standardRoom.add(wallObject1);
+		
+		var wallObject2 = createObject(new THREE.BoxGeometry(roomWidth*wallProportionX,roomHeight*(1-wallProportionY),2),	new CANNON.Box(new CANNON.Vec3(roomWidth*(wallProportionX/2),roomHeight*(1-wallProportionY)/2,1)), 0, materialGlass);;
+		wallObject2.position.set(-roomWidth/2+(wallProportionX*roomWidth/2),roomHeight*wallProportionY+(roomHeight*(1-wallProportionY)/2),-roomDepth/2);
+		standardRoom.add(wallObject2);
+		
+		//floor
+		var floorObject = createObject(new THREE.BoxGeometry(roomWidth,roomDepth,0.1),	new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth/2,0.1/2)), 0 , createMaterial(null, "textures/walls and others/fut_neon.jpg"));
+		floorObject.rotation.set(-Math.PI/2,0,0);
+		standardRoom.add(floorObject);
+		
+		//ceiling
+		var ceilingObject = createObject(new THREE.BoxGeometry(roomWidth,roomDepth,0.1), new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth/2,0.1/2)));
+		ceilingObject.rotation.set(Math.PI/2,0,0);
+		ceilingObject.position.y=roomHeight;
+		standardRoom.add(ceilingObject);
+
+		var columnObject1 = createObject(new THREE.BoxGeometry(5,roomHeight,4), new CANNON.Box(new CANNON.Vec3(5/2,roomHeight/2,4/2)));
+		columnObject1.position.set(roomWidth/2,roomHeight/2,-roomDepth/2);
+
+		var columnObject2 = createObject(new THREE.BoxGeometry(5,roomHeight,4), new CANNON.Box(new CANNON.Vec3(5/2,roomHeight/2,4/2)));
+		columnObject2.position.set(-roomWidth/2+(roomWidth*wallProportionX),roomHeight/2,-roomDepth/2);
+		
+		var columns = mergeLastFixedObjects(2,createMaterial ( new THREE.Color( 0x6e6e6e ),null));
+		columns.castShadow = false;
+		standardRoom.add(columns);
+		
+		var box = createObject(new THREE.BoxGeometry(roomWidth*wallProportionX,1,4),	new CANNON.Box(new CANNON.Vec3(roomWidth*(wallProportionX/2),0.5,2)), 0,createMaterial ( new THREE.Color( 0x6e6e6e ),null));;
+		box.position.set(-roomWidth/2+(wallProportionX*roomWidth/2.2),roomHeight*wallProportionY,-roomDepth/2);
+		standardRoom.add(box);		
+		
+		var door = createObject(new THREE.BoxGeometry(roomWidth*wallProportionX,roomHeight*wallProportionY,1.5),	new CANNON.Box(new CANNON.Vec3(roomWidth*(wallProportionX/2),roomHeight*(wallProportionY/2),0.75)), 0,createMaterial(null, "textures/door.jpg"));;
+		door.position.set(-roomWidth/2+(wallProportionX*roomWidth/2.2),roomHeight*(wallProportionY/2),-roomDepth/2);
+		standardRoom.add(door);
+		
+		var light = roomLight(false, 1);
+		light.translateX(roomHeight/2);
+		standardRoom.add(light);
+		
+		standardRoom.position.x=60*(num);
+		
+		//extension
+		
+		//floor
+		var floorObjectEXT = createObject(new THREE.BoxGeometry(roomWidth,roomDepth*2,0.1),	new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth,0.1/2)));
+		floorObjectEXT.rotation.set(-Math.PI/2,0,0);
+		
+		//ceiling
+		var ceilingObjectEXT = createObject(new THREE.BoxGeometry(roomWidth,roomDepth*2,0.1), new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomDepth,0.1/2)));
+		ceilingObjectEXT.rotation.set(Math.PI/2,0,0);
+		ceilingObjectEXT.position.y=roomHeight;
+		
+		var someStructureObjectsEXT = mergeLastFixedObjects(2,createMaterial(new THREE.Color( 0x303030 ),null));
+		someStructureObjectsEXT.castShadow = false;
+		
+		var wall1EXT = createObject(new THREE.BoxGeometry(2,roomHeight,roomDepth*2),	new CANNON.Box(new CANNON.Vec3(1,roomHeight/2,roomDepth)));;
+		wall1EXT.position.set(roomWidth/2,roomHeight/2,0);
+		
+		var wall2EXT = createObject(new THREE.BoxGeometry(2,roomHeight,roomDepth*2),	new CANNON.Box(new CANNON.Vec3(1,roomHeight/2,roomDepth)));;
+		wall2EXT.position.set(-roomWidth/2,roomHeight/2,0);
+		
+		var wall3EXT = createObject(new THREE.BoxGeometry(2,roomHeight/2,roomDepth),	new CANNON.Box(new CANNON.Vec3(1,roomHeight/4,roomDepth/2)));;
+		wall3EXT.position.set(roomWidth/2,roomHeight*0.75,roomDepth*1.5);
+		
+		var wall4EXT = createObject(new THREE.BoxGeometry(2,roomHeight/2,roomDepth),	new CANNON.Box(new CANNON.Vec3(1,roomHeight/4,roomDepth/2)));;
+		wall4EXT.position.set(-roomWidth/2,roomHeight*0.75,roomDepth*1.5);
+		
+		var wallDownEXT = createObject(new THREE.BoxGeometry(roomWidth+2,roomHeight*2,roomDepth*2),	new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomHeight/2,roomDepth)));;
+		wallDownEXT.position.set(0,-roomHeight,0);
+		var wallUpEXT = createObject(new THREE.BoxGeometry(roomWidth+2,roomHeight*2,roomDepth*2),	new CANNON.Box(new CANNON.Vec3(roomWidth/2,roomHeight/2,roomDepth)));;
+		wallUpEXT.position.set(0,roomHeight*2,0);
+		
+		var wallEXT = mergeLastFixedObjects(6);
+		wallEXT.castShadow = false;
+		
+		extension.add(wallEXT);
+		
+		var lightEXT1 = roomLight();
+		lightEXT1.translateX(roomHeight/2)
+		lightEXT1.position.z= roomDepth*0.5;
+		var lightEXT2 = roomLight();
+		lightEXT2.position.z= -roomDepth*0.5;
+		lightEXT2.translateX(roomHeight/2)
+		
+		gateEscapePod1 = createObject(new THREE.BoxGeometry( roomWidth, roomHeight/2, 2 ), new CANNON.Box ( new CANNON.Vec3(roomWidth, roomHeight/2, 2)), 0, createMaterial(null, "textures/walls and others/panel1.png") );
+		gateEscapePod1.position.set(0, roomHeight+roomHeight/2, -(roomDepth*2+roomDepth/2+1));
+		gateEscapePod1.castShadow = false;
+		standardRoom.add(gateEscapePod1);
+		
+		gateEscapePod2 = createObject(new THREE.BoxGeometry( roomWidth, roomHeight/2, 2 ), new CANNON.Box ( new CANNON.Vec3(roomWidth, roomHeight/2, 2)), 0, createMaterial(null, "textures/walls and others/panel2.png") );
+		gateEscapePod2.position.set(0, -(roomHeight/2), -(roomDepth*2+roomDepth/2+1));
+		gateEscapePod2.castShadow = false;
+		standardRoom.add(gateEscapePod2);
+		
+		extension.add(someStructureObjectsEXT, lightEXT1, lightEXT2);
+		extension.position.z=-roomDepth*1.5;
+		
+		standardRoom.add(extension);
+		
+		return standardRoom;
+
+	}
+	
+	var lift;
+	var doorLift1;
+	var doorLift2;
+	var tabletLift;
+	var liftIsOn = false;
+	var liftCounter =0 ;
+	var liftUsable=false;
+	//CREATE A CIRCULAR ROOM
+	function createCircleRoom(column,num)
+	{
+	
+		var circleRoom = new THREE.Group();
+	
+		var numOfSegments = 32;
+		var radius = 31.5;
+		var roomHeight = 30;
+		
+		//floor circle
+		var floorObject = createObject(new THREE.RingGeometry(radius/4,radius,numOfSegments), new CANNON.Box(new CANNON.Vec3(radius,radius,0.1/2)),0,createMaterial( new THREE.Color( 0x181818 ), null ));
+		floorObject.rotation.set(-Math.PI/2,0,0);
+		floorObject.position.y=0.05;
+		floorObject.castShadow=false;
+		
+		circleRoom.add(floorObject)
+		
+		doorLift1 = createObject(new THREE.BoxGeometry(radius/2+1,1,radius+1),  new CANNON.Box(new CANNON.Vec3(radius/4+0.5,0.5,radius/2+0.5)));
+		doorLift1.position.set(radius-5,-1,0);
+		circleRoom.add(doorLift1);
+		
+		doorLift2 = createObject(new THREE.BoxGeometry(radius/2+1,1,radius+1),  new CANNON.Box(new CANNON.Vec3(radius/4+0.5,0.5,radius/2+0.5)));
+		doorLift2.position.set(-radius+5,-1,0);
+		circleRoom.add(doorLift2);
+			
+		lift = createObject(new THREE.CircleGeometry(radius/4,numOfSegments), null,0,createMaterial( null, "textures/eye.jpg" ));
+		lift.rotation.set(-Math.PI/2,0,0);
+		lift.position.y=0.05;
+		lift.castShadow = false;
+		circleRoom.add(lift);
+		
+		var tube = createObject(new THREE.CylinderGeometry(radius/4,radius/4,15,numOfSegments,1,true), null,0, materialStandardBackSide);
+		tube.position.y=-7.45;
+		tube.castShadow = false;
+		//scene.add(tube)
+		circleRoom.add(tube);
+		
+		//circular wall
+		var wallPieces = [];
+		for(i=3; i<numOfSegments-3; i++)
+		{
+			var wallPieces1=createWall((radius*Math.PI)/numOfSegments,roomHeight);
+			wallPieces1.rotation.y=Math.PI/2-(i*Math.PI/numOfSegments);
+			wallPieces1.translateZ(-radius);
+			wallPieces1.position.y=roomHeight/2;
+		}
+		
+		var someStructureObjects1= mergeLastFixedObjects(26, materialGlass);
+		someStructureObjects1.castShadow = false;
+
+		for(i=3; i<numOfSegments-3; i++)
+		{
+			var wallPieces2=createWall((radius*Math.PI)/numOfSegments,roomHeight/3);
+			wallPieces2.rotation.y=Math.PI/2-(i*Math.PI/numOfSegments);
+			wallPieces2.translateZ(-radius+((roomHeight/3)*0.5));
+			wallPieces2.lookAt(0,roomHeight/1.5,0);
+			wallPieces2.position.y=roomHeight/7;
+			
+			
+			var wallPieces3=createWall((radius*Math.PI)/numOfSegments,roomHeight/3);
+			wallPieces3.rotation.y=Math.PI/2-(i*Math.PI/numOfSegments);
+			wallPieces3.translateZ(-radius+((roomHeight/3)*0.5));
+			wallPieces3.lookAt(0,-roomHeight/1.5,0);
+			wallPieces3.position.y=roomHeight-roomHeight/7;
+		}
+		
+		for(i=4; i<numOfSegments-4; i++)
+		{
+			var wallPieces4= createObject(new THREE.BoxGeometry((radius*Math.PI)/numOfSegments,1,2),  new CANNON.Box(new CANNON.Vec3((radius*Math.PI)/(numOfSegments*2),1/2,2/2)));
+			wallPieces4.rotation.y=Math.PI/2-(i*Math.PI/numOfSegments);
+			wallPieces4.translateZ(-radius);
+			wallPieces4.position.y=roomHeight/4+1;
+			
+			var wallPieces5= createObject(new THREE.BoxGeometry((radius*Math.PI)/numOfSegments,1,2),  new CANNON.Box(new CANNON.Vec3((radius*Math.PI)/(numOfSegments*2),1/2,2/2)));
+			wallPieces5.rotation.y=Math.PI/2-(i*Math.PI/numOfSegments);
+			wallPieces5.translateZ(-radius);
+			wallPieces5.position.y=roomHeight-roomHeight/4-1;	
+		}
+		
+		//ceiling
+		var ceilingObject = createObject(new THREE.CircleGeometry(radius,numOfSegments), new CANNON.Box(new CANNON.Vec3(radius,radius,0.1/2)));
+		ceilingObject.rotation.set(Math.PI/2,0,0);
+		ceilingObject.position.y=roomHeight-0.05;
+		
+		//wall for door
+		var someStructureObjects2= mergeLastFixedObjects(101);
+		someStructureObjects2.castShadow = false;
+
+		var wallForDoorGroup = createWallForDoor(39,roomHeight/2);
+		wallForDoorGroup.position.x=radius-2;
+		circleRoom.add(wallForDoorGroup);
+
+		var wallExtension1 = createObject(new THREE.BoxGeometry(2,roomHeight,39),  new CANNON.Box(new CANNON.Vec3(1,roomHeight/2,19.5)));
+		wallExtension1.position.set(-30,roomHeight,0);
+		circleRoom.add(wallExtension1);
+		
+		var wallExtension2 = createObject(new THREE.BoxGeometry(2,roomHeight,39),  new CANNON.Box(new CANNON.Vec3(1,roomHeight/2,19.5)));
+		wallExtension2.position.set(29.5,roomHeight,0);
+		circleRoom.add(wallExtension2);
+
+		var columnObject1 = createObject(new THREE.BoxGeometry(9,roomHeight,4),  new CANNON.Box(new CANNON.Vec3(9/2,roomHeight/2,4/2)),0,createMaterial( new THREE.Color(0x3f48cc), null));
+		columnObject1.position.set(-radius+7,roomHeight/2,-7);
+		circleRoom.add(columnObject1);
+
+		var columnObject2 = createObject(new THREE.BoxGeometry(9,roomHeight,4),  new CANNON.Box(new CANNON.Vec3(9/2,roomHeight/2,4/2)),0,createMaterial( new THREE.Color(0x3f48cc), null));
+		columnObject2.position.set(radius-7,roomHeight/2,-7);
+		circleRoom.add(columnObject2);
+		
+		var sign1 = createObject(new THREE.BoxGeometry(8,4,1),  new CANNON.Box(new CANNON.Vec3(4,2,0.5)), 0, createMaterial(null, "textures/roomb4.png"));
+		sign1.position.set(-radius+7,10,-5.2);
+		circleRoom.add(sign1);
+
+		var sign2 = createObject(new THREE.BoxGeometry(8,4,1),  new CANNON.Box(new CANNON.Vec3(4,2,0.5)), 0, createMaterial(null, "textures/roomb4.png"));
+		sign2.position.set(radius-7,10,-5.2);
+		circleRoom.add(sign2);
+
+		var door = createDoor(10, 9);
+		door.position.set(29.5+60*num,5,0);
+
+		doorsArray[num]=door;
+		roomHasBackDoor[num+1]=true;
+
+		scene.add(doorsArray[doorsArray.length-1]);
+			
+		circleRoom.add(someStructureObjects1, someStructureObjects2);
+		circleRoom.position.x= num*60;
+		roomLight2(num);
+		return circleRoom;
+		
+	}
+	
+	//-------------------------------------------------------------//
+	//-------------------CREATE-ROOMS-OBJECTS----------------------//
+	//-------------------------------------------------------------//
+	
+	//::::::::::::::::::::::ROOM0:::::::::::::::::::::://
+	var pistons = [];
+	function createObjectForRoom0()
+	{
+		var objects = new THREE.Group();
+		
+		var wall = createWall(39,15);
+		//wall.material.map = loaderTexture.load("textures/walls and others/1.jpg");
+		wall.rotation.y=Math.PI/2;
+		wall.position.set(-30,7.5,0);
+		
+		var box1 = createObject(new THREE.BoxGeometry( 12, 4.5, 12 ), new CANNON.Box ( new CANNON.Vec3(6,2.25,6)) , 0, createMaterial(null, "textures/walls and others/11733.jpg"));
+		box1.position.set(24, 2.25, -13.5);
+		
+		var cylinder = [];
+		
+		for(i=0; i<4; i++)
+		{
+			cylinder[i] = createObject(new THREE.CylinderGeometry( 1.5, 1.5, 10.5, 6 ), new CANNON.Cylinder(1.5, 1.5, 10.5, 6), 0, createMaterial(null, "textures/walls and others/green.jpg"));
+			objects.add(cylinder[i]);
+		}
+		
+		cylinder[0].position.set(22.2,9.75,-15.7);
+		cylinder[1].position.set(26.2,9.75,-15.7);
+		cylinder[2].position.set(22.2,9.75,-11.3);
+		cylinder[3].position.set(26.2,9.75,-11.3);
+		
+		
+		var box2 = createObject(new THREE.BoxGeometry( 9, 4.5, 1 ), new CANNON.Box ( new CANNON.Vec3(4.5,2.25,0.5)) , 0, createMaterial(null, "textures/walls and others/11733.jpg"));
+		box2.position.set(13.5, 2.25, -19);
+		
+		var box3 = createObject(new THREE.BoxGeometry( 2, 15, 1 ), new CANNON.Box ( new CANNON.Vec3(1,7.5,0.5)) ,0,createMaterial(new THREE.Color( 0x4e4e4e ),null));
+		box3.position.set(8.0, 7.5, -19);
+		
+		var box4 = createObject(new THREE.BoxGeometry( 2, 15, 1 ), new CANNON.Box ( new CANNON.Vec3(1,7.5,0.5)),0,createMaterial(new THREE.Color( 0x4e4e4e ),null));
+		box4.position.set(-3.5, 7.5, -19);
+		
+		var box5 = createObject(new THREE.BoxGeometry( 2, 4.5, 10 ), new CANNON.Box ( new CANNON.Vec3(1,2.25,5)),0,createMaterial(new THREE.Color( 0x4e4e4e ),null));
+		box5.position.set(-3.5, 2.25, -14);
+		
+		//var someStructureObjects=mergeLastFixedObjects(10);
+		//objects.add(someStructureObjects);
+		objects.add(wall, box1, box2, box3, box4, box5);
+
+		for(i=0; i<4; i++)
+		{
+			pistons[i] = createObject(new THREE.CylinderGeometry( 2.5,2.5, 4.5, 6 ), new CANNON.Cylinder(2.5, 2.5, 4.5, 6), 0, createMaterial(null, "textures/walls and others/11733.jpg"));
+
+		}
+		
+		pistons[0].position.set(22.2,9.75,-15.7);
+		pistons[1].position.set(26.2,9.75,-15.7);
+		pistons[2].position.set(22.2,9.75,-11.3);
+		pistons[3].position.set(26.2,9.75,-11.3);
+		for(i=0; i<4; i++)
+			objects.add(pistons[i]);
+		
+		var tablet = createTablet();
+		tablet.position.set(23,0,-5.3);
+		objects.add(tablet);
+
+		var controlStation = createControlStation();
+		controlStation.position.set(2,0,-15);
+		objects.add(controlStation);
+		
+		var boxAtWall = createBoxAtWall();
+		boxAtWall.position.set(29,0,8);
+		objects.add(boxAtWall);
+		
+		var capsule1 = createCapsule(true);
+		capsule1.position.set(-24,0,0);
+		
+		var capsule2 = createCapsule();
+		capsule2.position.set(-24,0,10);
+		
+		var capsule3 = createCapsule();
+		capsule3.position.set(-24,0,-10);
+		
+		objects.add(capsule1,capsule2, capsule3);
+		
+		scene.add(objects);
+		tabletPositions.push(tablet.getWorldPosition(vec3).x+objects.position.x);
+
+		return objects;
+	}
+	
+	
+	//::::::::::::::::::::::ROOM1:::::::::::::::::::::://
+	
+	function createObjectForRoom1()
+	{
+		var objects = new THREE.Group();
+		
+		var baseHeight = 2.5;
+		var base = createBase(56.5, baseHeight, 15, 4);
+		base.position.set(-5.5,0,-12.5);
+		objects.add(base);
+		
+		for(c=0; c<4; c++)
+		{
+			var longTablet = createLongTablet();
+			longTablet.position.set(-20+c*10,baseHeight,-15)
+			objects.add(longTablet);
+		}
+		
+		for(i=0; i<6; i++)
+			for(j=0; j<14; j++)
+			{
+				var box = createObject(new THREE.BoxGeometry( 2.5, 1.7, 0.5 ), new CANNON.Box ( new CANNON.Vec3(0,0,0)) , 0, createMaterial(null, "textures/n7.jpg"));
+				box.position.set(j*3.9-26, i*3-1.9, -17);
+				objects.add(box);
+
+			}
+/*		var bricks = mergeLastFixedObjects(60);
+		objects.add(bricks);*/
+		
+		var glass= createObject(new THREE.BoxGeometry( 60, 12.5, 1 ), new CANNON.Box ( new CANNON.Vec3(30,6.25,0.5)), 0, materialGlass );
+		glass.position.set(-1,8.6,-17);
+		
+		objects.add(glass);
+		
+		var boxAtWall = createBoxAtWall();
+		boxAtWall.position.set(-29,0,-8);
+		boxAtWall.rotation.y=Math.PI;
+		objects.add(boxAtWall);
+		
+		var box = createObject(new THREE.BoxGeometry( 5, 4.5, 13 ), new CANNON.Box ( new CANNON.Vec3(2.5,2.25,6.5)),0,darkGrey );
+		box.position.set(30, 2.25, -13);
+		objects.add(box);
+		
+		var column = createObject(new THREE.CylinderGeometry( 1.5, 1.5, 10.5, 6 ), new CANNON.Cylinder(3, 3, 10.5, 6),0,createMaterial(null, "textures/colblu.jpg"));
+		column.position.set(30, 9.75, -9);
+		objects.add(column);
+		
+		objects.position.x=60;
+		scene.add(objects);
+		
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM3:::::::::::::::::::::://
+	
+	var planetHolo;
+	function createObjectForRoom3()
+	{
+		var objects = new THREE.Group();
+		
+		planetHolo = createObject(new THREE.SphereGeometry(2, 8, 8),  null, 0, createMaterial(null, "textures/red.jpg"));
+		planetHolo.position.set(150, 7.5, -12.2);
+		scene.add(planetHolo);
+		
+		var columnDown = createObject(new THREE.CylinderGeometry( 4.2, 4.2, 3, 5 ), new CANNON.Cylinder(4.2, 4.2, 3, 5),0,darkGrey);
+		columnDown.position.set(-30, 1.5, -12.2);
+		objects.add(columnDown); 
+		
+		var columnUp = createObject(new THREE.CylinderGeometry( 4.2, 4.2, 3, 5 ), new CANNON.Cylinder(4.2, 4.2, 3, 5),0,darkGrey);
+		columnUp.position.set(-30, 13.5, -12.2);
+		objects.add(columnUp);
+		
+		var controlStation = createControlStation();
+		controlStation.position.set(-20,0,-15);
+		objects.add(controlStation);
+		
+		var table = createTable();
+		table.position.set(-10,0,-12);
+		table.rotation.y=Math.PI/2;
+		objects.add(table);
+		
+		var table1 = createTable();
+		table1.position.set(-7,0,-6);
+		objects.add(table1);
+		
+		var table2 = createTable();
+		table2.position.set(5,0,-6);
+		objects.add(table2);
+		
+		objects.position.x=180;
+		scene.add(objects);
+
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM4:::::::::::::::::::::://
+	
+	function createObjectForRoom4()
+	{
+		var objects = new THREE.Group();
+		
+		var tablet = createTablet();
+		tablet.position.set(0,0,-5.3);
+		tabletLift=tablet;
+		objects.add(tablet);
+		
+		objects.position.x=240;
+		scene.add(objects);
+
+		tabletPositions.push(tablet.getWorldPosition(vec3).x+objects.position.x);
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM5:::::::::::::::::::::://
+	
+	function createObjectForRoom5()
+	{
+		var objects = new THREE.Group();
+		
+		var container1 = createContainer();
+		container1.position.set(-14.8,0,-13.4);
+		objects.add(container1);
+		containers.push(container1)
+		
+		var container2 = createContainer();
+		container2.position.set(12.8,0,-13.4);
+		objects.add(container2);
+		containers.push(container2)
+
+		var tablet1 = createTablet();
+		tablet1.position.set(container1.position.x+6.5,0,-5.3)
+		objects.add(tablet1);
+		
+		var tablet2 = createTablet();
+		tablet2.position.set(container2.position.x+6.5,0,-5.3)
+		objects.add(tablet2);
+		
+		objects.position.x=300;
+		scene.add(objects);
+
+		tabletPositions.push(tablet1.getWorldPosition(vec3).x+objects.position.x);
+		tabletPositions.push(tablet2.getWorldPosition(vec3).x+objects.position.x);
+		tabletReuse[2]=true;
+		tabletReuse[3]=true;
+		
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM6:::::::::::::::::::::://
+	
+	function createObjectForRoom6()
+	{
+		var objects = new THREE.Group();
+		
+		var container1 = createContainer();
+		container1.position.set(-14.8,0,-13.4);
+		objects.add(container1);
+		containers.push(container1)
+
+		var container2 = createContainer();
+		container2.position.set(12.8,0,-13.4);
+		objects.add(container2);
+		containers.push(container2)
+
+		var tablet1 = createTablet();
+		tablet1.position.set(container1.position.x+6.5,0,-5.3)
+		objects.add(tablet1);
+		
+		var tablet2 = createTablet();
+		tablet2.position.set(container2.position.x+6.5,0,-5.3)
+		objects.add(tablet2);
+		
+		objects.position.x=360;
+		scene.add(objects);
+
+		tabletPositions.push(tablet1.getWorldPosition(vec3).x+objects.position.x);
+		tabletPositions.push(tablet2.getWorldPosition(vec3).x+objects.position.x);
+		tabletReuse[4]=true;
+		tabletReuse[5]=true;
+		
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM7:::::::::::::::::::::://
+	
+	function createObjectForRoom7()
+	{
+		var objects = new THREE.Group();
+		
+		var table1 = createTable()
+		table1.position.set(-23,0,-10);
+		objects.add(table1);
+		
+		var table2 = createTable()
+		table2.position.set(-6,0,-10);
+		objects.add(table2);
+		
+		var tablet = createTablet();
+		tablet.position.set(23,0,-5.3)
+		objects.add(tablet);
+
+		var boxAtWall = createBoxAtWall();
+		boxAtWall.position.set(0,0,-19);
+		boxAtWall.rotation.y=Math.PI/2;
+		objects.add(boxAtWall);
+		
+		var box1 = createObject(new THREE.BoxGeometry( 2, 15, 1 ), new CANNON.Box ( new CANNON.Vec3(1,7.5,0.5)) );
+		box1.position.set(-4.5, 7.5, -19);
+		
+		var box2 = createObject(new THREE.BoxGeometry( 2, 15, 1 ), new CANNON.Box ( new CANNON.Vec3(1,7.5,0.5)) );
+		box2.position.set(4.5, 7.5, -19);
+		
+		var box3 = createObject(new THREE.BoxGeometry( 3, 15, 3 ), new CANNON.Box ( new CANNON.Vec3(1.5,7.5,1.5)) );
+		box3.position.set(4.5, 7.5, -5);
+		
+		var box4 = createObject(new THREE.BoxGeometry( 3, 15, 3 ), new CANNON.Box ( new CANNON.Vec3(1.5,7.5,1.5)) );
+		box4.position.set(-28.5, 7.5, -5);
+		
+		var box5 = createObject(new THREE.BoxGeometry( 25, 2, 1 ), new CANNON.Box ( new CANNON.Vec3(5,1,0.5)) );
+		box5.position.set(17, 5, -19);
+		
+		var box6 = createObject(new THREE.BoxGeometry( 25, 2, 1 ), new CANNON.Box ( new CANNON.Vec3(5,1,0.5)) );
+		box6.position.set(17, 10, -19);
+		
+		var box7 = createObject(new THREE.BoxGeometry( 2, 15, 6 ), new CANNON.Box ( new CANNON.Vec3(5,1,0.5)) );
+		box7.position.set(4.5, 7.5, -8);
+		
+		var box8 = createObject(new THREE.BoxGeometry( 2, 4, 8 ), new CANNON.Box ( new CANNON.Vec3(5,1,0.5)) );
+		box8.position.set(4.5, 13, -14.8);
+		
+		var someStructureObjects1 = mergeLastFixedObjects(8,darkGrey);
+		objects.add(someStructureObjects1);
+		
+		var box9 = createObject(new THREE.BoxGeometry( 30, 15, 2 ), new CANNON.Box ( new CANNON.Vec3(17,7.5,1)), 0, materialGlass );
+		box9.position.set(-12, 7.5, -5);
+		objects.add(box9);
+		
+		
+		objects.position.x=420;
+		scene.add(objects);
+
+		tabletPositions.push(tablet.getWorldPosition(vec3).x+objects.position.x);
+		
+		return objects;
+	}
+	
+	var escapePod;
+	//::::::::::::::::::::::ROOM8:::::::::::::::::::::://
+	
+	function createObjectForRoom8()
+	{
+		var objects = new THREE.Group();
+		
+		escapePod = createEscapePod() ;
+		escapePod.position.set(0,0.5,-80);
+		objects.add(escapePod);
+		
+		var track = createObject(new THREE.BoxGeometry( 30, 1, 65 ), null, 0,createMaterial(null, "textures/one.png") );
+		track.position.set(0, 0, -65);
+		objects.add(track);
+		
+		objects.position.x=480;
+		scene.add(objects);
+
+		return objects;
+	}
+	
+	//::::::::::::::::::::::ROOM10:::::::::::::::::::::://
+	
+	function createObjectForRoom10()
+	{
+		var objects = new THREE.Group();
+		
+		var longTablet1 = createLongTablet();
+		longTablet1.position.set(-21.5,1,-13.5);
+		longTablet1.rotation.y=Math.PI/4;
+		objects.add(longTablet1);
+		
+		var longTablet2 = createLongTablet();
+		longTablet2.position.set(-3.5,1,-13.5);
+		longTablet2.rotation.y=-Math.PI/4;
+		objects.add(longTablet2);
+		
+		var longTablet3 = createLongTablet();
+		longTablet3.position.set(-12.5,1,-16.5);
+		objects.add(longTablet3);
+		
+		var box = createObject(new THREE.BoxGeometry( 30, 1, 12 ), new CANNON.Box ( new CANNON.Vec3(15,0.5,7.5)),0,darkGrey );
+		box.position.set(-12.5, 0.5, -14);
+		objects.add(box);
+		
+		var box1 = createObject(new THREE.BoxGeometry( 2, 4, 12 ), new CANNON.Box ( new CANNON.Vec3(1,2,7.5)),0,darkGrey );
+		box1.position.set(-28.5, 2, -14);
+		objects.add(box1);
+		
+		var box2 = createObject(new THREE.BoxGeometry( 2, 4, 12 ), new CANNON.Box ( new CANNON.Vec3(1,2,7.5)),0,darkGrey );
+		box2.position.set(3.5, 2, -14);
+		objects.add(box2);
+		
+		var box3 = createObject(new THREE.BoxGeometry( 24.5, 15, 12 ), new CANNON.Box ( new CANNON.Vec3(15,0.5,7.5)), 0 , createMaterial( null , "textures/walls and others/mine.png") );
+		box3.position.set(16.75, 7.5, -14);
+		objects.add(box3);
+		
+		var tablet = createTablet();
+		tablet.position.set(23,0,-5.3)
+		objects.add(tablet);
+		
+		objects.position.x=600;
+		scene.add(objects);
+
+		tabletPositions.push(tablet.getWorldPosition(vec3).x+objects.position.x);
+
+		return objects;
+	}
+	
+	//-------------------------------------------------------------//
+	//-------------------------TUBE-LIGHT--------------------------//
+	//-------------------------------------------------------------//
+
+	function roomLight(intermittent=false, power=1)
+	{
+		var tubeGeometry = new THREE.CylinderBufferGeometry( 0.2, 0.2, 30 );
+		tubeLight = new THREE.PointLight( 0xffffff, 1.8*power, 50*power, 2 );
+		
+		if(intermittent)
+			var lightTube = new THREE.Mesh( tubeGeometry, lightIntermittentMaterial);
+		else
+			var lightTube = new THREE.Mesh( tubeGeometry,
+			new THREE.MeshLambertMaterial( {
+			emissive: 0xffffff,
+			emissiveIntensity: 1,
+			color: 0xffffff
+			}));	
+		
+		tubeLight.add( lightTube );
+		tubeLight.position.set( 0 , 15, 0 );
+		tubeLight.rotateZ (Math.PI/2);
+
+		tubeLight.castShadow = true;
+		tubeLight.shadow.mapSize.width = 1024;
+		tubeLight.shadow.mapSize.height = 1024;
+		
+		if(intermittent)
+			lightIntermittent.push(tubeLight);
+		else
+			lightsArray.push(tubeLight);
+			
+		return tubeLight;
+	}
+
+	function roomLight2(num)
+	{
+		var sphereGeometry = new THREE.SphereBufferGeometry( 1.5, 1.5, 30 );
+		sphereLight = new THREE.PointLight( 0xffffff, 2, 40, 0.9 );
+		sphereMat = new THREE.MeshStandardMaterial( {
+		emissive: 0xffffff,
+		emissiveIntensity: 1,
+		color: 0xffffff
+	});
+
+	sphereLight.add( new THREE.Mesh( sphereGeometry, sphereMat ) );
+	sphereLight.position.set( 60*(num), 30, 0 );
+	sphereLight.castShadow = true;
+
+	sphereLight.rotateZ (Math.PI/2);
+	
+	lightsArray.push(sphereLight);
+	scene.add( sphereLight );
+
+	}
+
+
+
+	//--------------------------------------------------------------//
+	//--------------------------AUDIO ROOM--------------------------//
+	//--------------------------------------------------------------//
+	
+
+
+
+//--------------------------DOOR AUDIO--------------------------//
+	robot.add( listener );
+
+	// create the PositionalAudio object (passing in the listener)
+	var sound = new THREE.Audio( listener);
+	
+	
+	// load a sound and set it as the PositionalAudio object's buffer
+	var audioLoader = new THREE.AudioLoader();
+	
+	//function to play door open
+	function AudioDoorPlay (playbackRate)
+	{
+		if (sound.isPlaying == false){audioLoader.load( 'sounds/door2.ogg', function( buffer ) {
+			sound.setBuffer( buffer );
+			sound.setVolume (0.9);
+			sound.playbackRate = playbackRate;
+			sound.play();  });}
+	}
+
+
+
+//---------------------------STARSHIP AUDIO----------------------------//
+
+
+// create a global audio source
+var starshipSound = new THREE.Audio( listener );
+
+// load a sound and set it as the Audio object's buffer
+var audioLoaderStarship = new THREE.AudioLoader();
+	audioLoaderStarship.load( 'sounds/starship2.ogg', function( buffer ) {
+	starshipSound.setBuffer( buffer );
+	starshipSound.setLoop( true );
+	starshipSound.setVolume( 0.05 );
+	starshipSound.play();
+});
+
+function backgroundMusic(){
+
+	var backgroundMusic = new THREE.Audio(listener);
+	var audioLoaderBack = new THREE.AudioLoader();
+	audioLoaderBack.load( 'sounds/A Lonely Orbit2.ogg', function( buffer ) {
+	backgroundMusic.setBuffer( buffer );
+	backgroundMusic.setLoop( true );
+	backgroundMusic.setVolume( 1.5 );
+	backgroundMusic.play();
+});
+return backgroundMusic;
+}
+
+//-----------------------------IA VOICE-------------------------------//
+	
+var AIVoice = new THREE.Audio( listener );
+
+	
+function AIVoice01(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/activation of randy in progress.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice02(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/status of emergency, Randy, go to the cockpit to take the control of the starship.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice03(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/damage report of the starship engine efficency, 40%, left propulsor, inoperative.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+
+function AIVoice04(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/The escape pod, is prepared to be launched.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice05(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/Escape pod launched, the whole crew left the starship.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+
+function AIVoice06(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/we are entering the gravitational field of the earth, go to room B4.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice07(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/Randy, get into the rescue cabin.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice08(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/Rescue cabin activated.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice09(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/gravity adaptation in progress.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	
+function AIVoice10(){
+var audioLoaderIA = new THREE.AudioLoader();
+	if(AIVoice.isPlaying==false){
+		audioLoaderIA.load( 'IA_audio/gravity adaptation performed.wav', function( buffer ) {
+		AIVoice.setBuffer( buffer );
+		AIVoice.setVolume( 1.5 );
+		AIVoice.play();
+		}); }
+}
+	//--------------------------------------------------------------//
+	//-----------------------CREATE-OBJECTS-------------------------//
+	//--------------------------------------------------------------//
+	
+	
+	//create the rooms
+	var rooms = [];
+	rooms[0] = createStandardRoom(false,false,0);
+	rooms[1] = createStandardRoom(false,true,1);
+	rooms[2] = createStandardRoom(true,true,2);
+	rooms[3] = createStandardRoom(false,false,3);
+	rooms[4] = createCircleRoom(false,4);
+	rooms[5] = createStandardRoom(false,true,5);
+	rooms[6] = createStandardRoom(false,false,6);
+	rooms[7] = createStandardRoom(false,false,7, true);
+	rooms[8] = createEscapePodRoom(8);	
+	rooms[9] = createStandardRoom(true,true,9);
+	rooms[10] = createStandardRoom(false,false,10);
+	rooms[11] = createStandardRoom(false,false,11);
+	
+	//create objects inside rooms
+	var roomsObjects = [rooms.length]
+	roomsObjects[0]=createObjectForRoom0();
+	roomsObjects[1]=createObjectForRoom1();
+	roomsObjects[3]=createObjectForRoom3()
+	roomsObjects[4]=createObjectForRoom4();
+	roomsObjects[5]=createObjectForRoom5();
+	roomsObjects[6]=createObjectForRoom6();
+	roomsObjects[7]=createObjectForRoom7();
+	roomsObjects[8]=createObjectForRoom8();
+	roomsObjects[10]=createObjectForRoom10();
+	
+	
+	//create the edge
+	var bound = createObject(new THREE.BoxBufferGeometry( 0.01, 0.01, 0.01 ), new CANNON.Box ( new CANNON.Vec3(rooms.length*60,15,0.005)) );
+	bound.position.set((rooms.length*30)-30,7.5,20);
+	//bound.rotateZ(-Math.PI/2);
+	scene.add(bound);
+	
+	for(i=0; i<rooms.length; i++)
+		scene.add(rooms[i]);
+	
+	for(i=0; i<bodies.length; i++)
+		{
+			world.addBody(bodies[i]);
+		}
+	
+	var securityCameras = []
+	//create the security camera
+	var securityCamera = createsecurityCamera();	
+	securityCamera.position.set( 30 - 2.2, 13, 0 );
+	scene.add(securityCamera);
+	
+	function pistonsAnimation()
+	{
+		pistons[0].translateY(0.02*Math.sin(worldTime));
+		pistons[1].translateY(0.02*Math.cos(worldTime));
+		pistons[2].translateY(0.02*Math.cos(worldTime+1));
+		pistons[3].translateY(0.02*Math.sin(worldTime+1));
+
+	}
+	
+	var boxesCounter = 0;
+	function boxesOfContainer()
+	{
+		
+		if(currentRoom==1 & !containerFlag1)
+			{
+				
+				if(boxesCounter < 50)
+					for(var j=2; j<4; j++)
+					{
+						var testMesh = createObject(new THREE.BoxBufferGeometry( 2, 2, 2 ), new CANNON.Box ( new CANNON.Vec3(1,1,1)), 10, createMaterial( null, "textures/box.jpg" ) );
+						bodies[bodies.length-1].position.set(containers[j].getWorldPosition(vec3).x,5,-12);
+						bodies[bodies.length-1].velocity.set(5*(Math.random()-0.5),5*(Math.random()-0.5),5*(Math.random()-0.5));
+						bodies[bodies.length-1].linearDamping = 0.0;
+						bodies[bodies.length-1].angularDamping = 0.0;
+						world.addBody(bodies[bodies.length-1]);
+						scene.add(testMesh);
+					}
+				else
+				{
+					containerFlag1=true;
+					boxesCounter=0;
+				}
+				boxesCounter++;
+			}
+			
+
+		if(currentRoom==4 & !containerFlag2)
+			{	
+				if(boxesCounter<50)
+					for(var j=0; j<2; j++)
+					{
+						var testMesh = createObject(new THREE.BoxBufferGeometry( 2, 2, 2 ), new CANNON.Box ( new CANNON.Vec3(1,1,1)), 10, createMaterial( null, "textures/box.jpg" ) );
+						bodies[bodies.length-1].position.set(containers[j].getWorldPosition(vec3).x,5,-12);
+						bodies[bodies.length-1].velocity.set(5*(Math.random()-0.5),5*(Math.random()-0.5),5*(Math.random()-0.5));
+						bodies[bodies.length-1].linearDamping = 0.0;
+						bodies[bodies.length-1].angularDamping = 0.0;
+						world.addBody(bodies[bodies.length-1]);
+						scene.add(testMesh);
+					}
+				else
+				{
+					containerFlag2=true;
+				}
+				boxesCounter++;
+			}
+
+	}
+	
+	var flagCapsule = false;
+	function doorsAnimation()
+	{
+		//doors of rooms animation
+		if (roomHasBackDoor[currentRoom+1] & tabletActivation[0])
+		{
+			if( !( (currentRoom+1==8) & !tabletActivation[6]) & !( (currentRoom+1==11) & !tabletActivation[7]) )
+				if (robot.position.x>19+(60*currentRoom))
+				{
+					if(doorsArray[currentRoom].position.z>-7)
+					{
+						doorsArray[currentRoom].translateZ(-0.5);
+						if (sound.isPlaying == false){AudioDoorPlay(6);
+						sound.isPlaying = true;}
+					}
+
+					if(currentRoom==4 & !containerFlag)
+					{	
+						for(var i=0; i<7; i++)
+						{	
+							var testMesh = createObject(new THREE.BoxBufferGeometry( 2, 2, 2 ), new CANNON.Box ( new CANNON.Vec3(1,1,1)), 10, createMaterial( null, "textures/box.jpg" ) );
+							//console.log(containers[j].getWorldPosition(vec3))
+							bodies[bodies.length-1].position.set(280+(2.2*i),8,0.7);
+							bodies[bodies.length-1].velocity.set(-25,2*(Math.random()-0.5),2*(Math.random()-0.5));
+							bodies[bodies.length-1].angularVelocity.set(-1,1,0.1);
+							bodies[bodies.length-1].linearDamping = 0.0;
+							bodies[bodies.length-1].angularDamping = 0.0;
+							world.addBody(bodies[bodies.length-1]);
+							scene.add(testMesh);
+						}
+						for(var i=0; i<5; i++)
+						{	
+							var testMesh = createObject(new THREE.BoxBufferGeometry( 2, 2, 2 ), new CANNON.Box ( new CANNON.Vec3(1,1,1)), 10, createMaterial( null, "textures/box.jpg" ) );
+							bodies[bodies.length-1].position.set(280+(2.2*i),5,-0.7);
+							bodies[bodies.length-1].velocity.set(-20,2*(Math.random()-0.5),2*(Math.random()-0.5));
+							bodies[bodies.length-1].angularVelocity.set(1,-1,0.1);
+							bodies[bodies.length-1].linearDamping = 0.0;
+							bodies[bodies.length-1].angularDamping = 0.0;
+							world.addBody(bodies[bodies.length-1]);
+							scene.add(testMesh);
+						}
+
+							containerFlag=true;
+					}
+			}
+			else if (robot.position.x<17+(60*currentRoom))
+				if(doorsArray[currentRoom].position.z<0)
+				{
+					if (sound.isPlaying == false){AudioDoorPlay(6);
+					sound.isPlaying = true;}
+					doorsArray[currentRoom].translateZ(0.5);
+				}
+		}
+		if (roomHasBackDoor[currentRoom])
+			if (robot.position.x<(60*(currentRoom-1))+45)
+			{
+				if(doorsArray[currentRoom-1].position.z>-7)
+				{
+					doorsArray[currentRoom-1].translateZ(-0.5);
+					if (sound.isPlaying == false){AudioDoorPlay(6);
+					sound.isPlaying = true;}
+				}
+			}
+			else if(robot.position.x<(60*(currentRoom-1))+47)
+				if(doorsArray[currentRoom-1].position.z<0)
+				{
+					if (sound.isPlaying == false){AudioDoorPlay(6);
+					sound.isPlaying = true;}
+					doorsArray[currentRoom-1].translateZ(0.5);
+				}
+		
+		//door capsule animation
+		if(robot.position.x<-9 & doorOpen & intro2)
+		{
+			if(doorCapsule.rotation.y>=0)
+			{
+				doorCapsule.rotateY(0.02);
+				if (sound.isPlaying == false & !flagCapsule)
+				{ 
+					flagCapsule=true;
+					sound.playbackRate= 0.75; AudioDoorPlay(0.75); sound.isPlaying = true;
+				}
+				
+			}
+		}
+		else if(robot.position.x>-9 & doorOpen)
+		{
+			if(doorCapsule.rotation.y<=0 )
+			{
+				doorCapsule.rotateY(0.02);
+				if (sound.isPlaying == false){ sound.playbackRate= 0.75; AudioDoorPlay(0.75); sound.isPlaying = true;}
+			}
+		}
+		
+		//doors of containers animation
+		for(var i=0; i<doorsContainerArray.length; i++)
+		{
+			if(tabletActivation[i+2] & tabletReuse[i+2])
+			{				
+				if(doorsContainerArray[i].getWorldPosition(vec3).x < (containers[i].getWorldPosition(vec3).x))
+					doorsContainerArray[i].translateX(0.1);				
+			}
+			else
+			{
+				if(doorsContainerArray[i].getWorldPosition(vec3).x > (containers[i].getWorldPosition(vec3).x - 8))
+					doorsContainerArray[i].translateX(-0.1);
+			}
+		}
+	}
+	
+	var delta = 0;
+	var deltaRot = 0;
+	var rotationY = 0;
+	var rotationX = 0;
+	var escapePodSound = new THREE.Audio( listener );
+	var audioLoaderEP = new THREE.AudioLoader();
+
+	//escapePod Animation
+	function escapePodAnimation()
+	{
+		if(currentRoom==8)
+			triggerEscapePod = true;
+		
+		//console.log(escapePod.position.x);
+		
+		if(triggerEscapePod)
+		{
+			if(counterEscapePod == 1)
+			{
+				if(escapePodSound.isPlaying==false){
+				audioLoaderEP.load( 'sounds/epengine.ogg', function( buffer ) {
+				escapePodSound.setBuffer( buffer );
+				escapePodSound.setVolume( 1.5 );
+				escapePodSound.play();
+				}); }
+			}
+			
+			if(counterEscapePod < 200)
+			{
+				//propulsorLight.intensity += 0.01;
+				propulsorMaterial1.emissiveIntensity += 0.002;
+				propulsorMaterial2.emissiveIntensity += 0.002;
+			}
+			else if(counterEscapePod <300)
+			{
+				deltaRot = ((counterEscapePod-200)*(counterEscapePod-200))/50000
+				motor1.rotateZ(deltaRot)
+				motor2.rotateZ(-deltaRot)
+			
+			}
+			else if(counterEscapePod <520)
+			{	
+				
+				escapePod.translateZ(-delta)
+				delta= ((counterEscapePod-300)*(counterEscapePod-300))/10000
+				motor1.rotateZ(deltaRot)
+				motor2.rotateZ(-deltaRot)
+			}
+			else if(counterEscapePod <1450)
+			{
+				if(propulsorMaterial1.emissiveIntensity>0.1)
+				{
+					propulsorMaterial1.emissiveIntensity = propulsorMaterial1.emissiveIntensity/1.005 ;
+					propulsorMaterial2.emissiveIntensity = propulsorMaterial2.emissiveIntensity/1.005 ;
+				}
+				rotationY += -0.0001;
+				rotationX += 0.0001;
+				motor1.rotateZ(deltaRot)
+				motor2.rotateZ(-deltaRot)
+				escapePod.translateZ(-delta*Math.cos(rotationY) * Math.cos(rotationX) )
+				escapePod.translateX(-delta*Math.sin(rotationY) * Math.cos(rotationX) )
+				escapePod.translateY(delta*Math.sin(rotationX) * Math.cos(rotationY)  )
+				
+				escapePod.rotateY(-0.0001)
+				escapePod.rotateX(0.0001)
+				
+				
+			}
+			else if(counterEscapePod <3000)
+			{
+				escapePod.translateZ(-delta*Math.cos(rotationY) * Math.cos(rotationX) )
+				escapePod.translateX(-delta*Math.sin(rotationY) * Math.cos(rotationX) )
+				escapePod.translateY(delta*Math.sin(rotationX) * Math.cos(rotationY)  )
+				motor1.rotateZ(deltaRot)
+				motor2.rotateZ(-deltaRot)
+			}
+
+			else
+				scene.remove(escapePod);
+			
+			if(gateEscapePod1.position.y>22.5 & counterEscapePod >400)
+				{
+					gateEscapePod1.translateY(-0.1);
+					gateEscapePod2.translateY(+0.1);
+				}
+			
+			counterEscapePod++;
+		}
+	}
+	function planetHoloAnimation()
+	{
+		planetHolo.rotateY(0.02);
+	}
+	
+	function securityCameraAnimation()
+	{
+		for(i =0; i<securityCameraForAnimation.length; i++)
+			securityCameraForAnimation[i].rotation.y=(Math.PI/6)*Math.sin(0.7*worldTime);
+	}
+	
+	function updateLightsIntermittent()
+	{
+		for(var i=0; i<lightIntermittent.length; i++)
+		{
+			if(Math.random() > 0.98)
+			{
+				intermittentFlag=true;
+				intermittentCounter=4*Math.random()+2;
+			}
+			
+			if(intermittentFlag & intermittentCounter>0)
+			{
+				lightIntermittent[i].intensity=0.6;
+				lightIntermittentMaterial.emissiveIntensity=1;
+				intermittentCounter--;
+			}
+			else
+			{
+				lightIntermittent[i].intensity=0;
+				lightIntermittentMaterial.emissiveIntensity=0;
+				intermittentCounter=0;
+				intermittentFlag=false;
+			}
+		}
+	}
+	
+	var labelCounter =0;
+	var labelVoiceCounter =0;
+	var labelChange = -1;
+	var labelChangePrevious = -1;
+	var labelChangeForActions = 0;
+	
+	function addLabel(label, onCamera=true)
+	{
+		if(onCamera)
+		{
+			camera.add(label);
+			scene.add(camera);
+		}
+		else
+			scene.add(label);
+
+		if (labelOn)
+		{
+			if(label.material.opacity<1)
+			{
+				label.material.opacity= labelCounter;
+				labelCounter += 0.03;
+			}
+			
+			if(label.children.length>0)
+				for(i=0; i<label.children.length; i++)
+				{
+					label.children[i].material.opacity= labelCounter;
+				}
+		}
+		else
+		{
+			if(label.material.opacity>0)
+			{
+				label.material.opacity= labelCounter;
+				labelCounter += -0.03;
+			}
+			if(label.children.length>0)
+				for(i=0; i<label.children.length; i++)
+				{
+					label.children[i].material.opacity= labelCounter;
+				}
+		}
+	}
+	
+	function addVoiceLabel(label, onCamera=true)
+	{
+		if(onCamera)
+		{
+			camera.add(label);
+			scene.add(camera);
+		}
+		else
+			scene.add(label);
+
+		if (labelVoiceOn)
+		{
+			if(label.material.opacity<1)
+			{
+				label.material.opacity= labelVoiceCounter;
+			}
+			
+			labelVoiceCounter += 0.03;
+
+			if(label.children.length>0)
+				for(i=0; i<label.children.length; i++)
+				{
+					label.children[i].material.opacity= labelVoiceCounter;
+				}
+		}
+		else
+		{
+			if(labelVoiceCounter>1)
+			   labelVoiceCounter=1;
+			
+			if(label.material.opacity>0)
+			{
+				label.material.opacity= labelVoiceCounter;
+				labelVoiceCounter += -0.03;
+			}
+			if(label.children.opacity>0)
+				for(i=0; i<label.children.length; i++)
+				{
+					label.children[i].material.opacity= labelVoiceCounter;
+				}
+		}
+	}
+	var flagVoiceLabel= false;
+	var torchCounter = 0;
+	function labelFunction()
+	{
+		//sequence of labels
+		if (!intro & !intro2 & labelChangePrevious==-1 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 0;
+		}
+		else if(robot.position.x>18 & labelChangePrevious==0 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 1;
+			scene.remove(label0);
+		}
+		else if(robotIsInteractingWithTablet & currentRoom==0 & labelChangePrevious==1 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 2;
+			scene.remove(label1);
+		}
+		else if(currentRoom==7 & labelChangePrevious==2 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 3;
+			scene.remove(label2);
+		}
+		else if(torchIsOn & labelChangePrevious==3 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 4;
+			scene.remove(label4);
+		}
+		else if(gravityFlag & labelChangePrevious==4 & labelChange==-1)
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChange = 5;
+			scene.remove(label5);
+		}
+		
+		//labels for actions
+		if( Math.abs(robot.position.x-tabletPositions[1])<2 & keyboard.pressed("F") & labelChangeForActions==0 & !liftUsable & labelChangeForActions==0 )
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChangeForActions = 1;
+		}
+		
+		if( Math.abs(robot.position.x-tabletPositions[7])<2 & keyboard.pressed("F") & labelChangeForActions==0 & !gravityFlag & labelChangeForActions==0 )
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChangeForActions = 2;
+		}
+			
+		if( gravityFlag & keyboard.pressed("T") & velocity!=0 & labelChangeForActions==0 )
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChangeForActions = 3;
+		}
+		
+		if( torchIsOn & !spiderMode & (keyboard.pressed("A") | keyboard.pressed("D")) & labelChangeForActions==0 )
+		{
+			labelOn = true
+			labelCounter = 0;
+			labelChangeForActions = 4;
+		}
+		 switch (labelChange)
+		 {
+			 case -1:
+				 break;
+				 
+			 case 0:
+				 addLabel(label0);
+				 if(robot.position.x>5)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=0;
+				 }
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+			
+			 case 1:
+				 addLabel(label1, false);
+				 if(robotIsInteractingWithTablet)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=1;
+				 }
+				 else if(tabletActivation[0])
+				 {
+					 labelOn= false;
+					 labelChangePrevious=2;
+				 }
+				 
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+				 
+			 case 2:
+				 addLabel(label2);
+				 if(tabletActivation[0])
+				 {
+					 labelOn= false;
+					 labelChangePrevious=2;
+				 }
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+				 
+			 case 3:
+				 addLabel(label4);
+				 if(torchIsOn)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=3;
+				 }
+				 if(currentRoom==8)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=4;
+				 }
+				 if(currentRoom==6)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=1;
+				 }
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+				 
+			 case 4:
+				 addLabel(label5);
+				 if((Epressed & Qpressed ) | currentRoom==8 )
+				 {
+					 labelOn= false;
+					 labelChangePrevious=4;
+				 }
+				 if(currentRoom==6)
+				 {
+					 labelOn= false;
+					 labelChangePrevious=1;
+				 }
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+			 case 5:
+				 addLabel(label6);
+				 if(keyboard.pressed("1"))
+				 {
+					 labelOn= false;
+					 labelChangePrevious=5;
+				 }
+				 if(labelCounter<0)
+					 labelChange=-1;
+				 break;
+				 
+		 }
+		
+		if(labelChangeForActions==1)
+		{
+			addLabel(label3, false);
+			if(Math.abs(robot.position.x-240)>3)
+			{
+				labelOn= false;
+			}
+			if(labelCounter<0)
+				labelChangeForActions=0;
+		}
+		
+		if(labelChangeForActions==2)
+		{
+			addLabel(label7, false);
+			if(Math.abs(robot.position.x-tabletPositions[7])>3)
+			{
+				labelOn= false;
+			}
+			if(labelCounter<0)
+				labelChangeForActions=0;
+		}
+		
+		if(labelChangeForActions==3)
+		{
+			addLabel(label8);
+			torchCounter++;
+			if(torchCounter > 200 | torchIsOn)
+			{
+				labelOn= false;
+				torchCounter=0;
+			}
+			if(labelCounter<0)
+				labelChangeForActions=0;
+		}
+		
+		if(labelChangeForActions==4)
+		{
+			addLabel(label9);
+			if(keyboard.pressed("E") | keyboard.pressed("Q") | keyboard.pressed("1") | keyboard.pressed("T"))
+			{
+				labelOn= false;
+			}
+			if(labelCounter<0)
+				labelChangeForActions=0;
+		}
+		
+		//IA VOICE LABELS
+		
+		if(AIVoice.isPlaying==true)
+		{
+			labelVoiceOn = true
+			addVoiceLabel(AIVoiceLabels[AIVoiceTrigger-1])
+		}
+		else if(!intro)
+		{
+			if(labelVoiceCounter<1500 & !flagVoiceLabel)
+			{
+				labelVoiceCounter++;
+				flagVoiceLabel=true;
+			}
+			else
+			{
+				addVoiceLabel(AIVoiceLabels[AIVoiceTrigger-1])
+				labelVoiceOn=false;
+			}
+			
+			
+		}
+			
+			
+	}
+	
+	var lightsChangeColor = false;
+	var lightsChangeColor2 = false;
+	var dampGravity =100;
+	var shipGravityRotation = false;
+	var alarmSound = new THREE.Audio( listener );
+	
+	function liftAnimation()
+	{
+	
+		if(liftUsable & !lightsChangeColor & !lightsChangeColor2)
+		{
+			var audioLoaderAlarm= new THREE.AudioLoader();
+			audioLoaderAlarm.load( 'sounds/alarm.ogg', function( buffer ) {
+			alarmSound.setBuffer( buffer );
+			alarmSound.setLoop( true );
+			alarmSound.setVolume( 0.5 );
+			alarmSound.play();
+		});
+			lightsChangeColor=true;
+			for(var i=0; i<lightsArray.length; i++)
+			{
+				lightsArray[i].color = new THREE.Color(0xff3030);
+				lightsArray[i].children[0].material.emissive = new THREE.Color(0xff3030);
+
+			}
+		}
+		else if (liftIsOn)
+		{
+			for(var i=0; i<lightsArray.length; i++)
+			{
+				lightsArray[i].color = new THREE.Color(0x3030ff);
+				lightsArray[i].children[0].material.emissive = new THREE.Color(0x3030ff);
+			}
+			alarmSound.setLoop( false );
+		}
+		
+		else if (gravityFlag & !lightsChangeColor2)
+		{
+			for(var i=0; i<lightsArray.length; i++)
+			{
+				lightsArray[i].color = new THREE.Color(0xffffff);
+				lightsArray[i].children[0].material.emissive = new THREE.Color(0xffffff);
+			}
+			lightsChangeColor2=true;
+			alarmSound.setLoop( false );
+		}
+		
+		if(robot.position.x>600 & !liftUsable & !gravityFlag)
+			liftUsable=true;
+		
+		if(tabletActivation[1])
+			liftIsOn=true;
+		
+		if(liftIsOn)
+		{		
+
+			robotStop=true;
+			
+			if(robot.position.y>-6 & liftCounter<500)
+			{
+				lift.translateZ(-0.05);
+				robot.translateY(-0.05);
+				tabletLift.translateY(-0.05);
+			}
+			if(doorLift1.position.x>8.2 & liftCounter<500)
+			{
+				doorLift1.translateX(-0.05)
+				doorLift2.translateX(0.05)
+			}
+			else if( liftCounter<200 & liftCounter<500)
+				liftCounter++
+			else if( liftCounter<400 & liftCounter<500)
+			{
+				world.gravity.set(0,-100+dampGravity,-dampGravity);
+				liftCounter++
+
+			}
+			else if(dampGravity>0.01 & liftCounter<500)
+			{
+				world.gravity.set(0,-100+dampGravity,-dampGravity);
+				dampGravity=dampGravity-0.14;
+				shipGravityRotation = true;
+				earthRotator.rotateX(-0.002);
+			
+			}
+			else if( liftCounter<500)
+			{
+				liftCounter++
+			}
+			else 
+			{
+				shipGravityRotation = false;
+				
+				if( doorLift1.position.x<30 )
+			  	{
+					doorLift1.translateX(0.05);
+					doorLift2.translateX(-0.05);
+			  	}
+				if( lift.position.y<0.02 & doorLift1.position.x>18 )
+				{
+					lift.translateZ(0.05);
+					robot.translateY(0.05);
+					tabletLift.translateY(0.05);
+				}
+				else if(lift.position.y>0.02)
+				{
+					lift.position.y=0.05;
+					robotStop=false;
+					liftIsOn=false;
+					gravityFlag=true;
+					liftUsable=false;
+					scene.remove(escapePod);
+				}
+			}
+		}
+	}
+	
+	var AIVoiceTrigger = 0;
+	function AIVoiceFunction()
+	{
+		if(!intro & AIVoiceTrigger==0)
+		{
+			AIVoice01();
+			AIVoiceTrigger=1;
+		}
+		
+		else if(robot.position.x>35 & AIVoiceTrigger==1)
+		{
+			AIVoice02();
+			AIVoiceTrigger=2;
+		}
+		
+		else if(currentRoom==3 & AIVoiceTrigger==2)
+		{
+			AIVoice03();
+			AIVoiceTrigger=3;
+		}
+		
+		else if(robot.position.x>340 & AIVoiceTrigger==3)
+		{
+			AIVoice04();
+			AIVoiceTrigger=4;
+		}
+		
+		else if(escapePod.position.z<-110 & AIVoiceTrigger==4)
+		{
+			AIVoice05();
+			AIVoiceTrigger=5;
+		}
+		
+		else if(liftUsable & AIVoiceTrigger==5)
+		{
+			AIVoice06();
+			AIVoiceTrigger=6;
+		}
+		
+		else if(currentRoom==4 & AIVoiceTrigger==6)
+		{
+			AIVoice07();
+			AIVoiceTrigger=7;
+		}
+		
+		else if(tabletActivation[1] & AIVoiceTrigger==7)
+		{
+			AIVoice08();
+			AIVoiceTrigger=8;
+		}
+		
+		else if(dampGravity<99 & AIVoiceTrigger==8)
+		{
+			AIVoice09();
+			AIVoiceTrigger=9;
+		}
+		
+		else if(dampGravity<0 & AIVoiceTrigger==9)
+		{
+			AIVoice10();
+			AIVoiceTrigger=10;
+		}
+		
+			
+	}
+	
+	var currentRoom;
+	var blackscreen = createObject(new THREE.PlaneBufferGeometry( 20,10 ), null,0, materialBlackscreen );
+	var credits = createObject(new THREE.PlaneBufferGeometry( 2,2 ), null,0, materialCredits );
+	var misscomplFlag = false;
+	var flagTest = true;
+	//function which animate the map
+	function mapAnimation()
+	{
+		if(!end)
+		{
+			deltaTime = clock.getDelta();	
+			worldTime += deltaTime;						//update the world time
+			currentRoom = Math.floor((robot.position.x+30)/60);
+			robotAnimation();
+			doorsAnimation();									//animation of doors (including the CAPSULE DOOR)
+			boxesOfContainer();									//boxes of container
+			securityCameraAnimation();							//animate the security camera
+			planetHoloAnimation();								//planet hologram animation
+			pistonsAnimation();
+			updateLightsIntermittent();
+			liftAnimation();
+			escapePodAnimation();
+			labelFunction();
+			AIVoiceFunction();
+			updatePhysics();									//update the physic
+			director();										//a director which manage the camera
+			if(!intro)
+				optimization();
+
+		}
+		else if(materialBlackscreen.opacity<1)
+		{
+			bgMusic.stop();
+			
+			// create a global audio source
+			var misscomplSound = new THREE.Audio( listener );
+
+			// load a sound and set it as the Audio object's buffer
+			var audioLoaderStarship = new THREE.AudioLoader();
+			if(misscomplSound.isPlaying==false & !misscomplFlag){
+				audioLoaderStarship.load( 'sounds/missioncomplete.ogg', function( buffer ) {
+				misscomplSound.setBuffer( buffer );
+				misscomplSound.setVolume( 0.8 );
+				misscomplSound.play();
+			}); 
+			misscomplFlag=true;
+			}
+			
+			blackscreen.position.set(camera.position.x, camera.position.y, camera.position.z-2.5)
+			materialBlackscreen.opacity+=0.007;
+			scene.add(blackscreen);	
+			credits.position.set(camera.position.x, camera.position.y-3, camera.position.z-2.4)
+		}
+		else if(credits.position.y<camera.position.y-0.5)
+		{
+			credits.translateY(0.008);
+			scene.add(credits);	
+		}
+
+		requestAnimationFrame(mapAnimation);
+		webGLRenderer.render(scene, camera);
+		
+	}
+	
+	mapAnimation();
+	
+	//switch between directors with triggers
+	var triggers = -2;
+	
+	//damping coefficients
+	var dampX=0;
+	var dampY=0;
+	var dampZ=0;
+	var dampLAx=0;
+	var dampLAz=0;
+	
+	function director()
+	{
+		
+		if (intro2 & triggers==-2 & doorCapsule.rotation.y<0)
+		{
+			dampX= camera.position.x;
+			dampY= camera.position.y - 10;
+			dampZ= camera.position.z - 20;
+			
+			triggers = -1;
+		}
+		//at the left of -5, activate the left edge trigger
+		if (robot.position.x<-5 & triggers>=0)
+			triggers=1;
+		
+		//if the robot is within the window range, set the damping coefficients and switch director
+		if(robot.position.x>35+60+420 & robot.position.x<25+60*2+420 & triggers!=2)
+		{
+			dampY=5+dampY;
+			dampZ=15+dampZ;
+			dampLAx=-(60*currentRoom)+dampLAx+robot.position.x+velocity/2;
+			dampLAz=100+dampLAz;
+			triggers=2;
+		}
+		
+		//if the robot is within the window range, set the damping coefficients and switch director
+		if(robot.position.x>35+60 & robot.position.x<25+60*2 & triggers!=2)
+		{
+			dampY=5+dampY;
+			dampZ=15+dampZ;
+			dampLAx=-(60*currentRoom)+dampLAx+robot.position.x+velocity/2;
+			dampLAz=100+dampLAz;
+			triggers=2;
+		}
+		
+		//Robot interaction with tablet
+		if (robotIsInteractingWithTablet & triggers!=3)
+		{
+			dampZ=15;
+			triggers = 3;
+		}
+		else if(!robotIsInteractingWithTablet & triggers==3)
+		{
+			dampX=-velocity/2;
+			dampZ=-15;
+			dampY=0;
+			dampLAx=-velocity/2;
+			dampLAz=0;
+			triggers = 0;
+		}
+		
+		//gravity rotation
+		if(shipGravityRotation)
+			triggers=4;
+			
+		//switching between different directors
+		switch (triggers)
+		{
+				
+			case -1:
+				camera.position.x = dampX;				
+				camera.position.y=10+dampY;
+				camera.position.z=20+dampZ;
+				camera.lookAt(robot.position.x,5,0);
+				
+				dampX=dampX/1.013;
+				dampY=dampY/1.013;
+				dampZ=dampZ/1.013;
+				
+				if (robot.position.x>-4.5)
+				{
+					intro2=false;
+					
+					dampX = camera.position.x - (robot.position.x+velocity/2);
+					dampY = camera.position.y - 10;
+					dampZ = camera.position.z - 20;
+					
+					dampLAx = -velocity/2;
+					
+					triggers=0;
+				}
+				
+				break;
+			// 0 for standard director
+			case 0:
+				camera.position.x = robot.position.x+velocity/2+dampX;				
+				camera.position.y=10+dampY;
+				camera.position.z=20+dampZ;
+				camera.lookAt(robot.position.x+velocity/2+dampLAx,5,0+dampLAz);
+ 
+				dampX=dampX/1.033;
+				dampY=dampY/1.033;
+				dampZ=dampZ/1.033;
+				dampLAx=dampLAx/1.033;
+				dampLAz=dampLAz/1.033;
+				
+				if (finished)
+				{
+					camera.position.x = 623+dampX;				
+					camera.position.y=10+dampY;
+					camera.position.z=20+dampZ;
+					camera.lookAt(623+dampLAx,5,0+dampLAz);
+				}
+					
+				if(keyboard.pressed("B"))
+				   camera.position.z = 150;
+			
+				break;
+				
+				
+			// 1 for director at left edge
+			case 1:
+				if (robot.position.x+velocity/2>camera.position.x)
+				{
+					camera.position.x = robot.position.x+velocity/2;
+					triggers=0
+				}
+				camera.lookAt(robot.position.x+velocity/2,5,0);
+				break;
+				
+			// 2 for director in front of the window
+			case 2:
+				camera.position.x = robot.position.x+velocity/2;				
+				camera.position.y=5+dampY;
+				camera.position.z=5+dampZ;
+				camera.lookAt((60*currentRoom)+dampLAx,5,-100+dampLAz);
+				dampY=dampY/1.033;
+				dampZ=dampZ/1.033;
+				dampLAx=dampLAx/1.033;
+				dampLAz=dampLAz/1.033;
+				//when the robot leaves the window range, set the damping coefficients and return to the standard director
+				if(robot.position.x<=35+60*(currentRoom-1) | robot.position.x>=25+60*currentRoom)
+				{
+					dampY=camera.position.y-10;
+					dampZ=camera.position.z-20;
+					dampLAx=(60*currentRoom)+dampLAx-(robot.position.x+velocity/2);
+					dampLAz=-100+dampLAz;
+					camera.lookAt(robot.position.x+velocity/2+dampLAx,5,0+dampLAz);
+					camera.position.x = robot.position.x+velocity/2;				
+					camera.position.y=10+dampY;
+					camera.position.z=20+dampZ;
+					triggers=0;
+				}
+				break;
+			
+			// 3 for robot that interact with tablet
+			case 3:
+				camera.position.x = robot.position.x;				
+				camera.position.z=dampZ+5;
+				camera.lookAt(robot.position.x+dampLAx,5,0);
+				dampZ=dampZ/1.033;
+				break;
+			
+			case 4:
+				if(shipGravityRotation & liftCounter<401)
+				{
+					camera.rotateX(-0.0014);
+					camera.translateY(0.038);
+					camera.translateZ(0.016);
+				}
+				else
+				{
+					dampY = camera.position.y-10;
+					dampZ = camera.position.z-20;
+					triggers=0;
+				}
+				break;
+				//if(!shipGravityRotation & scene.rotation.x!=0)
+					//camera.rotation.x= camera.rotation.x/1.01;
+			case 5:
+				break;
+					
+		}
+	}
+	
+	var previousCurrentRoom = 0;
+	
+	function optimization()
+	{
+		if(intro2)
+			for(i=2; i<rooms.length; i++)	
+			{
+				if (roomsObjects[i] != null)
+					roomsObjects[i].visible=false;
+				rooms[i].visible=false;
+			}
+		
+		if (currentRoom > previousCurrentRoom)
+		{
+			if(currentRoom<rooms.length-1)
+			{
+				if (roomsObjects[currentRoom+1] != null)
+					roomsObjects[currentRoom+1].visible=true;
+				rooms[currentRoom+1].visible=true;
+			}
+			if (roomsObjects[currentRoom-2] != null)
+				roomsObjects[currentRoom-2].visible=false;
+			if (rooms[currentRoom-2] != null)
+				rooms[currentRoom-2].visible=false;
+		}
+		else if (currentRoom < previousCurrentRoom)
+		{
+			if( currentRoom>0 )
+			{
+				if (roomsObjects[currentRoom-1] != null)
+					roomsObjects[currentRoom-1].visible=true;
+				rooms[currentRoom-1].visible=true;
+			}
+			if (roomsObjects[currentRoom+2] != null)
+				roomsObjects[currentRoom+2].visible=false;
+			if (roomsObjects[currentRoom+2] != null)
+				rooms[currentRoom+2].visible=false;
+		}
+		
+		previousCurrentRoom = currentRoom;
+	}
+	//***************************************************************************//
+	//*****************************-MAP SCRIPT-**********************************//
+	//**********************************END**************************************//
+	//***************************************************************************//
+</script>
+	
+	
+<script type="text/javascript">
+//SCRIPT PER IL RENDERING
+</script>
+
+	
+	
+	
+</body>
+</html>
